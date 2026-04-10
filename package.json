@@ -1,0 +1,53 @@
+{
+  "name": "ldash-cli",
+  "version": "0.1.0",
+  "description": "CLI tool for Lightdash API - query data, explore models, manage dashboards and charts",
+  "main": "dist/cli.js",
+  "type": "module",
+  "bin": {
+    "ldash": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/*.js",
+    "start": "node dist/cli.js",
+    "test": "echo \"No tests yet\"",
+    "lint": "biome lint .",
+    "format": "prettier . --check --experimental-cli",
+    "format:fix": "prettier . --write --experimental-cli",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
+    "fix": "pnpm run format:fix && pnpm run lint --fix",
+    "validate": "run-p format lint && run-p typecheck",
+    "prepare": "lefthook install || true"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coji/ldash-cli.git"
+  },
+  "keywords": [
+    "lightdash",
+    "cli",
+    "bi",
+    "data"
+  ],
+  "author": "coji",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/coji/ldash-cli/issues"
+  },
+  "homepage": "https://github.com/coji/ldash-cli#readme",
+  "dependencies": {
+    "lightdash-client-typescript-fetch": "^0.0.4-202503270130"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
+    "@types/node": "^22.10.3",
+    "lefthook": "^1.11.13",
+    "npm-run-all": "4.1.5",
+    "prettier": "^3.8.1",
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "typescript": "^5.7.2"
+  }
+}
