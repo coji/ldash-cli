@@ -5,12 +5,8 @@ import type { components, paths } from './generated/api.js'
 
 export type LightdashClient = ReturnType<typeof createOpenApiFetchClient<paths>>
 
-/** Auth header value for raw fetch calls (api-escape, etc.) */
 export function authHeaders(apiKey: string): Record<string, string> {
-  return {
-    Authorization: `ApiKey ${apiKey}`,
-    'Content-Type': 'application/json',
-  }
+  return { Authorization: `ApiKey ${apiKey}` }
 }
 
 export function createBaseClient(): {
@@ -28,7 +24,7 @@ export function createBaseClient(): {
   }
   const client = createOpenApiFetchClient<paths>({
     baseUrl: config.apiUrl,
-    headers: { Authorization: `ApiKey ${config.apiKey}` },
+    headers: authHeaders(config.apiKey),
   })
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
 }
@@ -57,21 +53,21 @@ function throwOnError(error: {
   const name = error.error.name
   const message = error.error.message ?? 'no message'
 
-  if (name === 'NotFoundError' || message.includes('404')) {
+  if (name === 'NotFoundError') {
     throw new CliError(
       'Resource not found',
       message,
       'Check the identifier. Use the "list" command to see valid options.',
     )
   }
-  if (name === 'AuthorizationError' || message.includes('401')) {
+  if (name === 'AuthorizationError') {
     throw new CliError(
       'Unauthorized',
       'Your API key is invalid or expired.',
       'Check LIGHTDASH_API_KEY. Generate a new token in Lightdash settings.',
     )
   }
-  if (name === 'ForbiddenError' || message.includes('403')) {
+  if (name === 'ForbiddenError') {
     throw new CliError(
       'Forbidden',
       message,
@@ -461,15 +457,22 @@ export async function runMetricsExplorerQuery(
   metric: string,
   params: MetricTotalQuery,
 ) {
-  const { timeFrame, granularity, startDate, endDate, ...body } = params
   const { data, error } = await client.POST(
     '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricTotal',
     {
       params: {
         path: { projectUuid, explore, metric },
-        query: { timeFrame, granularity, startDate, endDate },
+        query: {
+          timeFrame: params.timeFrame,
+          granularity: params.granularity,
+          startDate: params.startDate,
+          endDate: params.endDate,
+        },
       },
-      body,
+      body: {
+        rollingDays: params.rollingDays,
+        comparisonType: params.comparisonType,
+      },
     },
   )
   if (error) throwOnError(error)

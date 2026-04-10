@@ -31,14 +31,11 @@ export const apiGroup: CommandGroup = {
     const { baseUrl, apiKey } = api.createBaseClient()
     const opts = parseFlags(args.slice(2))
 
-    const fetchOpts: RequestInit = {
-      method,
-      headers: api.authHeaders(apiKey),
-    }
+    const headers: Record<string, string> = api.authHeaders(apiKey)
+    if (opts.body) headers['Content-Type'] = 'application/json'
 
-    if (opts.body) {
-      fetchOpts.body = opts.body
-    }
+    const fetchOpts: RequestInit = { method, headers }
+    if (opts.body) fetchOpts.body = opts.body
 
     const response = await fetch(`${baseUrl}${path}`, fetchOpts)
     if (!response.ok) {
