@@ -1,5 +1,5 @@
 {
-  "name": "ldash-cli",
+  "name": "@coji/ldash-cli",
   "version": "0.1.0",
   "description": "CLI tool for Lightdash API - query data, explore models, manage dashboards and charts",
   "main": "dist/cli.js",
