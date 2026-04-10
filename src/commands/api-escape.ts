@@ -33,10 +33,7 @@ export const apiGroup: CommandGroup = {
 
     const fetchOpts: RequestInit = {
       method,
-      headers: {
-        Authorization: `ApiKey ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: api.authHeaders(apiKey),
     }
 
     if (opts.body) {

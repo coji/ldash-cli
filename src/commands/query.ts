@@ -107,9 +107,9 @@ export const queryGroup: CommandGroup = {
     'metrics-explorer': {
       description: 'Run a metrics explorer query with time-based analysis',
       usage:
-        'ldash query metrics-explorer <explore> <metric> --body \'{"startDate":"..."}\'',
+        'ldash query metrics-explorer <explore> <metric> --body \'{"timeFrame":"DAY","granularity":"DAY","startDate":"...","endDate":"..."}\'',
       examples: [
-        'ldash query metrics-explorer orders total_revenue --body \'{"startDate":"2024-01-01","endDate":"2024-12-31"}\'',
+        'ldash query metrics-explorer orders total_revenue --body \'{"timeFrame":"DAY","granularity":"DAY","startDate":"2024-01-01","endDate":"2024-12-31"}\'',
       ],
       nextSteps: ['ldash catalog metrics to discover available metrics'],
       run: (args) => {
