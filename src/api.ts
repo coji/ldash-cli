@@ -1,9 +1,8 @@
-import { createLightdashClient } from 'lightdash-client-typescript-fetch'
+import createOpenApiFetchClient from 'openapi-fetch'
 import { getConfig, getConfigPath } from './config.js'
+import type { paths } from './generated/api.js'
 
-type LightdashClient = ReturnType<typeof createLightdashClient>
-
-export type { LightdashClient }
+export type LightdashClient = ReturnType<typeof createOpenApiFetchClient<paths>>
 
 export function createBaseClient(): {
   client: LightdashClient
@@ -16,7 +15,8 @@ export function createBaseClient(): {
       `LIGHTDASH_API_KEY is not set.\nSet it via environment variable or run: ldash config set --api-key <token>\nConfig file: ${getConfigPath()}`,
     )
   }
-  const client = createLightdashClient(config.apiUrl, {
+  const client = createOpenApiFetchClient<paths>({
+    baseUrl: config.apiUrl,
     headers: { Authorization: `ApiKey ${config.apiKey}` },
   })
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
@@ -308,11 +308,16 @@ export async function calculateTotal(
     {
       params: { path: { projectUuid } },
       body: {
-        exploreName: body.exploreName,
-        dimensions: body.dimensions,
-        metrics: body.metrics,
-        filters: (body.filters ?? {}) as never,
-        tableCalculations: (body.tableCalculations ?? []) as never,
+        explore: body.exploreName,
+        metricQuery: {
+          exploreName: body.exploreName,
+          dimensions: body.dimensions,
+          metrics: body.metrics,
+          filters: (body.filters ?? {}) as never,
+          tableCalculations: (body.tableCalculations ?? []) as never,
+          sorts: [],
+          limit: 500,
+        } as never,
       },
     },
   )
@@ -408,9 +413,9 @@ export async function runMetricsExplorerQuery(
   body: Record<string, unknown>,
 ) {
   const { data, error } = await client.POST(
-    '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricExplorerQuery',
+    '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricTotal',
     {
-      params: { path: { projectUuid, explore, metric } },
+      params: { path: { projectUuid, explore, metric } } as never,
       body: body as never,
     },
   )
