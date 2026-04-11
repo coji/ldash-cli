@@ -1,7 +1,7 @@
 import createOpenApiFetchClient from 'openapi-fetch'
 import { getConfig, getConfigPath } from './config.js'
 import { CliError } from './errors.js'
-import type { components, paths } from './generated/api.js'
+import type { components, operations, paths } from './generated/api.js'
 
 export type LightdashClient = ReturnType<typeof createOpenApiFetchClient<paths>>
 
@@ -47,11 +47,19 @@ export function createClient(): {
   return { ...base, projectUuid }
 }
 
-function throwOnError(error: {
-  error: { name: string; message?: string }
-}): never {
-  const name = error.error.name
-  const message = error.error.message ?? 'no message'
+function throwOnError(error: unknown): never {
+  const apiError =
+    typeof error === 'object' &&
+    error !== null &&
+    'error' in error &&
+    typeof (error as { error?: unknown }).error === 'object' &&
+    (error as { error?: unknown }).error !== null
+      ? (error as { error: { name?: string; message?: string } }).error
+      : undefined
+
+  const name = apiError?.name ?? 'UnknownError'
+  const message =
+    apiError?.message ?? (typeof error === 'string' ? error : 'no message')
 
   if (name === 'NotFoundError') {
     throw new CliError(
@@ -441,14 +449,9 @@ export async function getDashboardDetail(
 
 // --- Metrics Explorer ---
 
-type MetricTotalQuery = {
-  timeFrame: components['schemas']['TimeFrames']
-  granularity: components['schemas']['TimeFrames']
-  startDate: string
-  endDate: string
-  rollingDays?: number
-  comparisonType?: components['schemas']['MetricTotalComparisonType']
-}
+type RunMetricTotal = operations['runMetricTotal']
+type MetricTotalQuery = RunMetricTotal['parameters']['query'] &
+  NonNullable<RunMetricTotal['requestBody']>['content']['application/json']
 
 export async function runMetricsExplorerQuery(
   client: LightdashClient,

@@ -11,8 +11,10 @@
     "dist"
   ],
   "scripts": {
-    "generate": "curl -f -o src/generated/swagger.json https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json && openapi-typescript src/generated/swagger.json -o src/generated/api.ts && node scripts/patch-generated.js",
+    "generate": "mkdir -p src/generated && curl -f -o src/generated/swagger.json https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json && openapi-typescript src/generated/swagger.json -o src/generated/api.ts && node scripts/patch-generated.js",
+    "prebuild": "[ -f src/generated/api.ts ] || pnpm generate",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/*.js",
+    "pretypecheck": "[ -f src/generated/api.ts ] || pnpm generate",
     "start": "node dist/cli.js",
     "test": "echo \"No tests yet\"",
     "lint": "biome lint .",
