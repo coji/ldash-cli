@@ -52,6 +52,7 @@
     "typescript": "^6.0.2"
   },
   "dependencies": {
-    "openapi-fetch": "0.17.0"
+    "openapi-fetch": "0.17.0",
+    "openid-client": "6.8.2"
   }
 }
