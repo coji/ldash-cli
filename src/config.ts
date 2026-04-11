@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-interface Config {
+interface ConfigFile {
   apiKey?: string
   apiUrl?: string
   projectUuid?: string
@@ -10,13 +10,66 @@ interface Config {
 
 const CONFIG_DIR = join(homedir(), '.config', 'ldash')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
+const DEFAULT_API_URL = 'https://app.lightdash.cloud'
 
-function loadConfigFile(): Config {
+export const ENV_API_KEY = 'LIGHTDASH_API_KEY'
+export const ENV_API_URL = 'LIGHTDASH_API_URL'
+export const ENV_PROJECT_UUID = 'LIGHTDASH_PROJECT_UUID'
+
+export type ConfigSource = 'env' | 'file' | 'default' | 'unset'
+
+export interface ResolvedField<T> {
+  value: T
+  source: ConfigSource
+  envVar?: string
+}
+
+export interface ResolvedConfig {
+  apiKey: ResolvedField<string | undefined>
+  apiUrl: ResolvedField<string>
+  projectUuid: ResolvedField<string | undefined>
+  configFile: string
+}
+
+function loadConfigFile(): ConfigFile {
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as Config
+    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as ConfigFile
   } catch {
     return {}
   }
+}
+
+/**
+ * Resolve each config field to its effective value, tracking whether it came
+ * from an environment variable, the config file, a built-in default, or is
+ * unset. Used by `ldash config show` and by error messages so the user knows
+ * which setting to update.
+ */
+export function getResolvedConfig(): ResolvedConfig {
+  const file = loadConfigFile()
+
+  const apiKeyEnv = process.env[ENV_API_KEY]
+  const apiKey: ResolvedField<string | undefined> = apiKeyEnv
+    ? { value: apiKeyEnv, source: 'env', envVar: ENV_API_KEY }
+    : file.apiKey
+      ? { value: file.apiKey, source: 'file' }
+      : { value: undefined, source: 'unset' }
+
+  const apiUrlEnv = process.env[ENV_API_URL]
+  const apiUrl: ResolvedField<string> = apiUrlEnv
+    ? { value: apiUrlEnv, source: 'env', envVar: ENV_API_URL }
+    : file.apiUrl
+      ? { value: file.apiUrl, source: 'file' }
+      : { value: DEFAULT_API_URL, source: 'default' }
+
+  const projectUuidEnv = process.env[ENV_PROJECT_UUID]
+  const projectUuid: ResolvedField<string | undefined> = projectUuidEnv
+    ? { value: projectUuidEnv, source: 'env', envVar: ENV_PROJECT_UUID }
+    : file.projectUuid
+      ? { value: file.projectUuid, source: 'file' }
+      : { value: undefined, source: 'unset' }
+
+  return { apiKey, apiUrl, projectUuid, configFile: CONFIG_PATH }
 }
 
 export function getConfig(): {
@@ -24,18 +77,18 @@ export function getConfig(): {
   apiUrl: string
   projectUuid: string | undefined
 } {
-  const file = loadConfigFile()
+  const r = getResolvedConfig()
   return {
-    apiKey: process.env.LIGHTDASH_API_KEY || file.apiKey,
-    apiUrl:
-      process.env.LIGHTDASH_API_URL ||
-      file.apiUrl ||
-      'https://app.lightdash.cloud',
-    projectUuid: process.env.LIGHTDASH_PROJECT_UUID || file.projectUuid,
+    apiKey: r.apiKey.value,
+    apiUrl: r.apiUrl.value,
+    projectUuid: r.projectUuid.value,
   }
 }
 
-export function saveConfig(values: Partial<Config>): void {
+/**
+ * Write values to the config file on disk. Never touches environment variables.
+ */
+export function saveConfig(values: Partial<ConfigFile>): void {
   const existing = loadConfigFile()
   const merged = { ...existing, ...values }
   mkdirSync(CONFIG_DIR, { recursive: true })
