@@ -1,5 +1,5 @@
 import createOpenApiFetchClient from 'openapi-fetch'
-import { getConfig, getConfigPath } from './config.js'
+import { getConfig, getConfigPath, getResolvedConfig } from './config.js'
 import { CliError } from './errors.js'
 import type { components, operations, paths } from './generated/api.js'
 
@@ -19,7 +19,7 @@ export function createBaseClient(): {
     throw new CliError(
       'API key is not set',
       'Authentication is required to access the Lightdash API.',
-      `Set it via environment variable or run: ldash setup --api-key <token>\nConfig file: ${getConfigPath()}`,
+      `Sign in with:  ldash setup\nOr set env var: LIGHTDASH_API_KEY=<token>\nConfig file: ${getConfigPath()}`,
     )
   }
   const client = createOpenApiFetchClient<paths>({
@@ -69,10 +69,27 @@ function throwOnError(error: unknown): never {
     )
   }
   if (name === 'AuthorizationError') {
+    const apiKeyField = getResolvedConfig().apiKey
+    let hint: string
+    if (apiKeyField.source === 'env' && apiKeyField.envVar) {
+      hint = [
+        `This key comes from environment variable ${apiKeyField.envVar}.`,
+        `  - Update it:  export ${apiKeyField.envVar}=<new-token>`,
+        `  - Or unset to use saved config:  unset ${apiKeyField.envVar}`,
+        '  - Or re-run sign in:             ldash setup',
+      ].join('\n      ')
+    } else if (apiKeyField.source === 'file') {
+      hint = [
+        `This key is stored in ${getConfigPath()}.`,
+        '  Re-authenticate with:  ldash setup',
+      ].join('\n      ')
+    } else {
+      hint = 'Sign in with:  ldash setup'
+    }
     throw new CliError(
       'Unauthorized',
       'Your API key is invalid or expired.',
-      'Check LIGHTDASH_API_KEY. Generate a new token in Lightdash settings.',
+      hint,
     )
   }
   if (name === 'ForbiddenError') {
