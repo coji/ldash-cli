@@ -89,8 +89,6 @@ function throwOnError(error: unknown): never {
   )
 }
 
-// --- Organization ---
-
 export async function listProjects(client: LightdashClient) {
   const { data, error } = await client.GET('/api/v1/org/projects', {})
   if (error) throwOnError(error)
@@ -102,8 +100,6 @@ export async function getUserAttributes(client: LightdashClient) {
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Project ---
 
 export async function getProject(client: LightdashClient, projectUuid: string) {
   const { data, error } = await client.GET('/api/v1/projects/{projectUuid}', {
@@ -180,8 +176,6 @@ export async function validateProject(
   return data.results
 }
 
-// --- Data Catalog ---
-
 export async function getCatalog(client: LightdashClient, projectUuid: string) {
   const { data, error } = await client.GET(
     '/api/v1/projects/{projectUuid}/dataCatalog',
@@ -229,8 +223,6 @@ export async function getAnalytics(
   return data.results
 }
 
-// --- Charts as Code ---
-
 export async function getChartsAsCode(
   client: LightdashClient,
   projectUuid: string,
@@ -254,8 +246,6 @@ export async function getDashboardsAsCode(
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Explores ---
 
 export async function listExplores(
   client: LightdashClient,
@@ -281,8 +271,6 @@ export async function getExplore(
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Query ---
 
 type Filters = components['schemas']['MetricQueryRequest']['filters']
 type SortField = components['schemas']['SortField']
@@ -369,8 +357,6 @@ export async function calculateTotal(
   return data.results
 }
 
-// --- Charts ---
-
 export async function getChartResults(
   client: LightdashClient,
   chartUuid: string,
@@ -430,8 +416,6 @@ export async function getChartVersion(
   return data.results
 }
 
-// --- Dashboard ---
-
 export async function getDashboardDetail(
   client: LightdashClient,
   projectUuid: string,
@@ -446,8 +430,6 @@ export async function getDashboardDetail(
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Metrics Explorer ---
 
 type RunMetricTotal = operations['runMetricTotal']
 type MetricTotalQuery = RunMetricTotal['parameters']['query'] &
