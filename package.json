@@ -16,13 +16,14 @@
     "build": "tsc -p tsconfig.build.json && chmod +x dist/*.js",
     "pretypecheck": "node scripts/ensure-generated.js",
     "start": "node dist/cli.js",
-    "test": "echo \"No tests yet\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "biome lint .",
     "format": "prettier . --check --experimental-cli",
     "format:fix": "prettier . --write --experimental-cli",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "fix": "pnpm run format:fix && pnpm run lint --fix",
-    "validate": "run-p format lint && run-p typecheck",
+    "validate": "run-p format lint typecheck test",
     "prepare": "lefthook install || true"
   },
   "repository": {
@@ -49,7 +50,8 @@
     "openapi-typescript": "7.13.0",
     "prettier": "^3.8.2",
     "prettier-plugin-organize-imports": "^4.3.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "openapi-fetch": "0.17.0",

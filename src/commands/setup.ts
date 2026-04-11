@@ -16,7 +16,7 @@ import type { CommandGroup, Flags } from '../types.js'
 
 // --- Flag parsing ---
 
-interface SetupOptions {
+export interface SetupOptions {
   url?: string
   apiKey?: string
   projectUuid?: string
@@ -35,7 +35,7 @@ const VALUE_FLAGS = new Set([
   '--token-ttl',
 ])
 
-function parseSetupArgs(args: string[]): SetupOptions {
+export function parseSetupArgs(args: string[]): SetupOptions {
   const opts: SetupOptions = {
     pat: false,
     nonInteractive: false,
@@ -101,7 +101,7 @@ function parseSetupArgs(args: string[]): SetupOptions {
 
 // --- Helpers ---
 
-function normalizeUrl(input: string): string {
+export function normalizeUrl(input: string): string {
   let url = input.trim()
   if (!url.includes('/') && !url.includes('.') && !url.includes(':')) {
     url = `${url}.lightdash.cloud`
