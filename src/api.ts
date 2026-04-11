@@ -442,6 +442,17 @@ export async function runMetricsExplorerQuery(
   metric: string,
   params: MetricTotalQuery,
 ) {
+  const missing = (
+    ['timeFrame', 'granularity', 'startDate', 'endDate'] as const
+  ).filter((key) => !params?.[key])
+  if (missing.length > 0) {
+    throw new CliError(
+      `Missing required field(s) in --body: ${missing.join(', ')}`,
+      'metrics-explorer requires timeFrame, granularity, startDate, and endDate.',
+      `Example: --body '{"timeFrame":"DAY","granularity":"DAY","startDate":"2024-01-01","endDate":"2024-12-31"}'`,
+    )
+  }
+
   const { data, error } = await client.POST(
     '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricTotal',
     {
