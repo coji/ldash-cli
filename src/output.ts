@@ -1,6 +1,11 @@
 import type { Flags } from './types.js'
 
 export function output(data: unknown, flags: Flags): void {
+  // Strings are human-oriented messages — print raw so newlines render.
+  if (typeof data === 'string') {
+    console.log(data)
+    return
+  }
   if (flags.json) {
     console.log(JSON.stringify(data))
   } else {

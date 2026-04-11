@@ -13,6 +13,18 @@ export function formatError(err: CliError): string {
   return `Error: ${err.what}\nWhy: ${err.why}\nHint: ${err.hint}`
 }
 
+export interface JsonErrorEnvelope {
+  ok: false
+  error: { what: string; why: string; hint: string }
+}
+
+export function formatErrorJson(err: CliError): JsonErrorEnvelope {
+  return {
+    ok: false,
+    error: { what: err.what, why: err.why, hint: err.hint },
+  }
+}
+
 export function wrapApiError(err: unknown): CliError {
   if (err instanceof CliError) return err
   const message = err instanceof Error ? err.message : 'Unknown error occurred'

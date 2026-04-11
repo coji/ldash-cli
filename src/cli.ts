@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
-import { CliError, formatError, wrapApiError } from './errors.js'
+import {
+  CliError,
+  formatError,
+  formatErrorJson,
+  wrapApiError,
+} from './errors.js'
 import { output, parseGlobalFlags } from './output.js'
-import type { CommandGroup } from './types.js'
+import type { CommandGroup, Flags } from './types.js'
 
 const GROUP_LOADERS: Record<string, () => Promise<CommandGroup>> = {
   explore: () => import('./commands/explore.js').then((m) => m.exploreGroup),
@@ -52,9 +57,10 @@ Quick start:
   ldash chart get <chartUuid>                 # get chart data
 
 Setup:
-  ldash setup                                   # interactive wizard
-  ldash setup https://your-instance.com         # step-by-step with flags
-  Or: ldash config set --api-key <token> --project-uuid <uuid>`)
+  ldash setup                                   # sign in with browser (OAuth)
+  ldash setup https://your-instance.com         # sign in against a specific instance
+  ldash setup --pat                             # paste a Personal Access Token instead
+  For agents/CI: ldash setup <url> --api-key <token> --project-uuid <uuid>`)
 }
 
 function printGroupHelp(groupName: string, group: CommandGroup): void {
@@ -109,9 +115,12 @@ ${cmd.nextSteps.map((n) => `  ${n}`).join('\n')}`)
 
 // --- Main ---
 
-async function main(): Promise<void> {
-  const { args, flags } = parseGlobalFlags(process.argv.slice(2))
+// Parse global flags once at the top so the error handler can honor --json.
+const { args: globalArgs, flags: globalFlags } = parseGlobalFlags(
+  process.argv.slice(2),
+)
 
+async function main(args: string[], flags: Flags): Promise<void> {
   const groupName = args[0]
 
   // Top-level help
@@ -131,20 +140,20 @@ async function main(): Promise<void> {
 
   const group = await loader()
 
-  // Groups with defaultRun (e.g., "api") — pass all remaining args directly
+  // Groups with defaultRun (e.g., "api", "setup") — pass remaining args directly
   if (group.defaultRun) {
     const restArgs = args.slice(1)
 
-    if (
-      restArgs.length === 0 ||
-      restArgs[0] === '--help' ||
-      restArgs[0] === '-h'
-    ) {
+    if (restArgs[0] === '--help' || restArgs[0] === '-h') {
+      printGroupHelp(groupName, group)
+      return
+    }
+    if (restArgs.length === 0 && !group.handlesEmptyArgs) {
       printGroupHelp(groupName, group)
       return
     }
 
-    const result = await group.defaultRun(restArgs)
+    const result = await group.defaultRun(restArgs, flags)
     output(result, flags)
     return
   }
@@ -174,16 +183,16 @@ async function main(): Promise<void> {
     return
   }
 
-  const result = await cmd.run(restArgs)
+  const result = await cmd.run(restArgs, flags)
   output(result, flags)
 }
 
-main().catch((err: unknown) => {
-  if (err instanceof CliError) {
-    console.error(formatError(err))
+main(globalArgs, globalFlags).catch((err: unknown) => {
+  const cli = err instanceof CliError ? err : wrapApiError(err)
+  if (globalFlags.json) {
+    console.error(JSON.stringify(formatErrorJson(cli)))
   } else {
-    const wrapped = wrapApiError(err)
-    console.error(formatError(wrapped))
+    console.error(formatError(cli))
   }
   process.exit(1)
 })
