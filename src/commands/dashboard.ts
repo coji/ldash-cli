@@ -38,13 +38,8 @@ export const dashboardGroup: CommandGroup = {
         const dashboardUuid = args[0]
         if (!dashboardUuid || dashboardUuid.startsWith('--'))
           throw missingArg('dashboardUuid', 'dashboard get')
-        const { baseUrl, apiKey, projectUuid } = api.createClient()
-        return api.getDashboardDetail(
-          baseUrl,
-          apiKey,
-          projectUuid,
-          dashboardUuid,
-        )
+        const { client, projectUuid } = api.createClient()
+        return api.getDashboardDetail(client, projectUuid, dashboardUuid)
       },
     },
     code: {

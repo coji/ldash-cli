@@ -1,9 +1,13 @@
-import { createLightdashClient } from 'lightdash-client-typescript-fetch'
+import createOpenApiFetchClient from 'openapi-fetch'
 import { getConfig, getConfigPath } from './config.js'
+import { CliError } from './errors.js'
+import type { components, operations, paths } from './generated/api.js'
 
-type LightdashClient = ReturnType<typeof createLightdashClient>
+export type LightdashClient = ReturnType<typeof createOpenApiFetchClient<paths>>
 
-export type { LightdashClient }
+export function authHeaders(apiKey: string): Record<string, string> {
+  return { Authorization: `ApiKey ${apiKey}` }
+}
 
 export function createBaseClient(): {
   client: LightdashClient
@@ -12,12 +16,15 @@ export function createBaseClient(): {
 } {
   const config = getConfig()
   if (!config.apiKey) {
-    throw new Error(
-      `LIGHTDASH_API_KEY is not set.\nSet it via environment variable or run: ldash config set --api-key <token>\nConfig file: ${getConfigPath()}`,
+    throw new CliError(
+      'API key is not set',
+      'Authentication is required to access the Lightdash API.',
+      `Set it via environment variable or run: ldash setup --api-key <token>\nConfig file: ${getConfigPath()}`,
     )
   }
-  const client = createLightdashClient(config.apiUrl, {
-    headers: { Authorization: `ApiKey ${config.apiKey}` },
+  const client = createOpenApiFetchClient<paths>({
+    baseUrl: config.apiUrl,
+    headers: authHeaders(config.apiKey),
   })
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
 }
@@ -31,22 +38,56 @@ export function createClient(): {
   const base = createBaseClient()
   const { projectUuid } = getConfig()
   if (!projectUuid) {
-    throw new Error(
-      `LIGHTDASH_PROJECT_UUID is not set.\nSet it via environment variable or run: ldash config set --project-uuid <uuid>\nConfig file: ${getConfigPath()}`,
+    throw new CliError(
+      'Project UUID is not set',
+      'Most commands require a project context.',
+      `Run "ldash project list" to find your project UUID,\nthen: ldash setup --project-uuid <uuid>\nConfig file: ${getConfigPath()}`,
     )
   }
   return { ...base, projectUuid }
 }
 
-function throwOnError(error: {
-  error: { name: string; message?: string }
-}): never {
-  throw new Error(
-    `Lightdash API error: ${error.error.name}, ${error.error.message ?? 'no message'}`,
-  )
+function extractApiError(
+  error: unknown,
+): { name?: string; message?: string } | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const inner = (error as Record<string, unknown>).error
+  if (typeof inner !== 'object' || inner === null) return undefined
+  return inner as { name?: string; message?: string }
 }
 
-// --- Organization ---
+function throwOnError(error: unknown): never {
+  const apiError = extractApiError(error)
+  const name = apiError?.name
+  const message = apiError?.message ?? 'no message'
+
+  if (name === 'NotFoundError') {
+    throw new CliError(
+      'Resource not found',
+      message,
+      'Check the identifier. Use the "list" command to see valid options.',
+    )
+  }
+  if (name === 'AuthorizationError') {
+    throw new CliError(
+      'Unauthorized',
+      'Your API key is invalid or expired.',
+      'Check LIGHTDASH_API_KEY. Generate a new token in Lightdash settings.',
+    )
+  }
+  if (name === 'ForbiddenError') {
+    throw new CliError(
+      'Forbidden',
+      message,
+      'You may not have permission to access this resource.',
+    )
+  }
+  throw new CliError(
+    'Lightdash API error',
+    name ? `${name}: ${message}` : message,
+    'Run with --help for usage details.',
+  )
+}
 
 export async function listProjects(client: LightdashClient) {
   const { data, error } = await client.GET('/api/v1/org/projects', {})
@@ -59,8 +100,6 @@ export async function getUserAttributes(client: LightdashClient) {
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Project ---
 
 export async function getProject(client: LightdashClient, projectUuid: string) {
   const { data, error } = await client.GET('/api/v1/projects/{projectUuid}', {
@@ -137,8 +176,6 @@ export async function validateProject(
   return data.results
 }
 
-// --- Data Catalog ---
-
 export async function getCatalog(client: LightdashClient, projectUuid: string) {
   const { data, error } = await client.GET(
     '/api/v1/projects/{projectUuid}/dataCatalog',
@@ -186,8 +223,6 @@ export async function getAnalytics(
   return data.results
 }
 
-// --- Charts as Code ---
-
 export async function getChartsAsCode(
   client: LightdashClient,
   projectUuid: string,
@@ -211,8 +246,6 @@ export async function getDashboardsAsCode(
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Explores ---
 
 export async function listExplores(
   client: LightdashClient,
@@ -239,7 +272,8 @@ export async function getExplore(
   return data.results
 }
 
-// --- Query ---
+type Filters = components['schemas']['MetricQueryRequest']['filters']
+type SortField = components['schemas']['SortField']
 
 export async function runQuery(
   client: LightdashClient,
@@ -248,11 +282,11 @@ export async function runQuery(
   body: {
     dimensions: string[]
     metrics: string[]
-    filters?: Record<string, unknown>
-    sorts?: { fieldId: string; descending: boolean }[]
+    filters?: Filters
+    sorts?: SortField[]
     limit?: number
-    tableCalculations?: Record<string, unknown>[]
-    additionalMetrics?: Record<string, unknown>[]
+    tableCalculations?: components['schemas']['TableCalculation'][]
+    additionalMetrics?: components['schemas']['AdditionalMetric'][]
   },
 ) {
   const { data, error } = await client.POST(
@@ -263,11 +297,11 @@ export async function runQuery(
         exploreName: exploreId,
         dimensions: body.dimensions,
         metrics: body.metrics,
-        filters: (body.filters ?? {}) as never,
+        filters: body.filters ?? {},
         sorts: body.sorts ?? [],
         limit: body.limit ?? 500,
-        tableCalculations: (body.tableCalculations ?? []) as never,
-        additionalMetrics: (body.additionalMetrics ?? []) as never,
+        tableCalculations: body.tableCalculations ?? [],
+        additionalMetrics: body.additionalMetrics ?? [],
       },
     },
   )
@@ -299,28 +333,29 @@ export async function calculateTotal(
     exploreName: string
     dimensions: string[]
     metrics: string[]
-    filters?: Record<string, unknown>
-    tableCalculations?: Record<string, unknown>[]
+    filters?: Filters
+    tableCalculations?: components['schemas']['TableCalculation'][]
   },
 ) {
+  const metricQuery: components['schemas']['MetricQueryRequest'] = {
+    exploreName: body.exploreName,
+    dimensions: body.dimensions,
+    metrics: body.metrics,
+    filters: body.filters ?? {},
+    tableCalculations: body.tableCalculations ?? [],
+    sorts: [],
+    limit: 500,
+  }
   const { data, error } = await client.POST(
     '/api/v1/projects/{projectUuid}/calculate-total',
     {
       params: { path: { projectUuid } },
-      body: {
-        exploreName: body.exploreName,
-        dimensions: body.dimensions,
-        metrics: body.metrics,
-        filters: (body.filters ?? {}) as never,
-        tableCalculations: (body.tableCalculations ?? []) as never,
-      },
+      body: { explore: body.exploreName, metricQuery },
     },
   )
   if (error) throwOnError(error)
   return data.results
 }
-
-// --- Charts ---
 
 export async function getChartResults(
   client: LightdashClient,
@@ -330,13 +365,17 @@ export async function getChartResults(
     '/api/v1/saved/{chartUuid}/results',
     {
       params: { path: { chartUuid } },
-      body: {} as never,
+      body: { invalidateCache: false },
     },
   )
   if (error) throwOnError(error)
   return data.results
 }
 
+// chart-and-results uses the deprecated PostDashboardTile operation whose
+// required body fields (dashboardUuid, dashboardSorts, dashboardFilters)
+// are not available in a standalone chart context. Lightdash accepts an
+// empty body for backward compatibility, so we cast here intentionally.
 export async function getChartAndResults(
   client: LightdashClient,
   chartUuid: string,
@@ -377,41 +416,59 @@ export async function getChartVersion(
   return data.results
 }
 
-// --- Dashboard (v2, direct fetch) ---
-
 export async function getDashboardDetail(
-  baseUrl: string,
-  apiKey: string,
+  client: LightdashClient,
   projectUuid: string,
   dashboardUuid: string,
 ) {
-  const response = await fetch(
-    `${baseUrl}/api/v2/projects/${projectUuid}/dashboards/${dashboardUuid}`,
-    { headers: { Authorization: `ApiKey ${apiKey}` } },
+  const { data, error } = await client.GET(
+    '/api/v2/projects/{projectUuid}/dashboards/{dashboardUuidOrSlug}',
+    {
+      params: { path: { projectUuid, dashboardUuidOrSlug: dashboardUuid } },
+    },
   )
-  if (!response.ok) {
-    throw new Error(
-      `Lightdash API error: ${response.status} ${response.statusText}`,
-    )
-  }
-  const json = (await response.json()) as Record<string, unknown>
-  return json.results
+  if (error) throwOnError(error)
+  return data.results
 }
 
-// --- Metrics Explorer ---
+type RunMetricTotal = operations['runMetricTotal']
+type MetricTotalQuery = RunMetricTotal['parameters']['query'] &
+  NonNullable<RunMetricTotal['requestBody']>['content']['application/json']
 
 export async function runMetricsExplorerQuery(
   client: LightdashClient,
   projectUuid: string,
   explore: string,
   metric: string,
-  body: Record<string, unknown>,
+  params: MetricTotalQuery,
 ) {
+  const missing = (
+    ['timeFrame', 'granularity', 'startDate', 'endDate'] as const
+  ).filter((key) => !params?.[key])
+  if (missing.length > 0) {
+    throw new CliError(
+      `Missing required field(s) in --body: ${missing.join(', ')}`,
+      'metrics-explorer requires timeFrame, granularity, startDate, and endDate.',
+      `Example: --body '{"timeFrame":"DAY","granularity":"DAY","startDate":"2024-01-01","endDate":"2024-12-31"}'`,
+    )
+  }
+
   const { data, error } = await client.POST(
-    '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricExplorerQuery',
+    '/api/v1/projects/{projectUuid}/metricsExplorer/{explore}/{metric}/runMetricTotal',
     {
-      params: { path: { projectUuid, explore, metric } },
-      body: body as never,
+      params: {
+        path: { projectUuid, explore, metric },
+        query: {
+          timeFrame: params.timeFrame,
+          granularity: params.granularity,
+          startDate: params.startDate,
+          endDate: params.endDate,
+        },
+      },
+      body: {
+        rollingDays: params.rollingDays,
+        comparisonType: params.comparisonType,
+      },
     },
   )
   if (error) throwOnError(error)
