@@ -106,6 +106,27 @@ describe('getResolvedConfig', () => {
     expect(() => getResolvedConfig()).toThrow(/not valid JSON/)
   })
 
+  it('throws when the config file is a JSON value other than an object', () => {
+    mockedReadFileSync.mockReturnValue('null')
+    expect(() => getResolvedConfig()).toThrow(/JSON object/)
+    mockedReadFileSync.mockReturnValue('[]')
+    expect(() => getResolvedConfig()).toThrow(/JSON object/)
+    mockedReadFileSync.mockReturnValue('"hello"')
+    expect(() => getResolvedConfig()).toThrow(/JSON object/)
+  })
+
+  it('throws when a known field has the wrong type', () => {
+    mockedReadFileSync.mockReturnValue(JSON.stringify({ apiUrl: 123 }))
+    expect(() => getResolvedConfig()).toThrow(/"apiUrl" must be a string/)
+  })
+
+  it('ignores unknown fields without throwing', () => {
+    mockedReadFileSync.mockReturnValue(
+      JSON.stringify({ apiUrl: 'https://x', extra: { nested: 1 } }),
+    )
+    expect(() => getResolvedConfig()).not.toThrow()
+  })
+
   it('mixes sources independently per field', () => {
     mockedReadFileSync.mockReturnValue(
       JSON.stringify({

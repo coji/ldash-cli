@@ -56,12 +56,14 @@ export const queryGroup: CommandGroup = {
         return api.runQuery(client, projectUuid, exploreId, {
           dimensions: parseJson(parsed.string.dimensions, 'dimensions'),
           metrics: parseJson(parsed.string.metrics, 'metrics'),
-          filters: parsed.string.filters
-            ? parseJson(parsed.string.filters, 'filters')
-            : {},
-          sorts: parsed.string.sorts
-            ? parseJson(parsed.string.sorts, 'sorts')
-            : [],
+          filters:
+            parsed.string.filters !== undefined
+              ? parseJson(parsed.string.filters, 'filters')
+              : {},
+          sorts:
+            parsed.string.sorts !== undefined
+              ? parseJson(parsed.string.sorts, 'sorts')
+              : [],
           limit: parsed.int.limit,
         })
       },
@@ -110,9 +112,10 @@ export const queryGroup: CommandGroup = {
           exploreName,
           dimensions: parseJson(parsed.string.dimensions, 'dimensions'),
           metrics: parseJson(parsed.string.metrics, 'metrics'),
-          filters: parsed.string.filters
-            ? parseJson(parsed.string.filters, 'filters')
-            : {},
+          filters:
+            parsed.string.filters !== undefined
+              ? parseJson(parsed.string.filters, 'filters')
+              : {},
         })
       },
     },

@@ -127,6 +127,59 @@ function resolveUrl(opts: SetupOptions, banner?: string): Promise<string> {
   return promptForUrl(banner)
 }
 
+/**
+ * Read a line of input without echoing it back to the terminal — used for
+ * the PAT paste prompt so the token never lands in the user's scrollback.
+ * Falls back to plain readline if stdin is not a TTY (no echo control there).
+ */
+async function askHidden(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    const rl = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    })
+    try {
+      return await rl.question(prompt)
+    } finally {
+      rl.close()
+    }
+  }
+  process.stdout.write(prompt)
+  process.stdin.setRawMode(true)
+  process.stdin.resume()
+  process.stdin.setEncoding('utf8')
+  let buffer = ''
+  return new Promise<string>((resolve) => {
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        const code = ch.charCodeAt(0)
+        if (code === 0x0d || code === 0x0a) {
+          process.stdin.removeListener('data', onData)
+          process.stdin.setRawMode(false)
+          process.stdin.pause()
+          process.stdout.write('\n')
+          resolve(buffer)
+          return
+        }
+        if (code === 0x03) {
+          process.stdin.removeListener('data', onData)
+          process.stdin.setRawMode(false)
+          process.stdin.pause()
+          process.stdout.write('\n')
+          process.exit(130)
+        }
+        if (code === 0x7f || code === 0x08) {
+          buffer = buffer.slice(0, -1)
+          continue
+        }
+        if (code < 0x20) continue
+        buffer += ch
+      }
+    }
+    process.stdin.on('data', onData)
+  })
+}
+
 async function fetchProjectsWithKey(
   apiUrl: string,
   apiKey: string,
@@ -326,27 +379,33 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
   const apiUrl = await resolveUrl(opts)
   saveConfig({ apiUrl })
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  try {
-    const patPageUrl = `${apiUrl}/generalSettings/personalAccessTokens`
-    console.error('\nOpening your browser to create a Personal Access Token...')
-    console.error(`  ${patPageUrl}\n`)
-    await openBrowser(patPageUrl)
+  const patPageUrl = `${apiUrl}/generalSettings/personalAccessTokens`
+  console.error('\nOpening your browser to create a Personal Access Token...')
+  console.error(`  ${patPageUrl}\n`)
+  await openBrowser(patPageUrl)
 
-    const token = (
-      await rl.question('Paste your Personal Access Token: ')
-    ).trim()
-    if (!token) {
-      throw new CliError(
-        'No token provided',
-        'Setup cancelled: an empty token was entered.',
-        'Run "ldash setup --pat" again and paste the token from the browser.',
-      )
-    }
-    saveConfig({ apiKey: token })
-  } finally {
-    rl.close()
+  // Use a hidden prompt so the pasted token doesn't land in scrollback.
+  const token = (await askHidden('Paste your Personal Access Token: ')).trim()
+  if (!token) {
+    throw new CliError(
+      'No token provided',
+      'Setup cancelled: an empty token was entered.',
+      'Run "ldash setup --pat" again and paste the token from the browser.',
+    )
   }
+
+  // Verify the token against the Lightdash API before persisting it, so a
+  // typo or expired PAT doesn't leave a broken credential on disk.
+  try {
+    await fetchProjectsWithKey(apiUrl, token)
+  } catch (err) {
+    throw new CliError(
+      'Token verification failed',
+      err instanceof Error ? err.message : String(err),
+      'Double-check that you copied the full Personal Access Token, then run "ldash setup --pat" again.',
+    )
+  }
+  saveConfig({ apiKey: token })
 
   const project = await selectAndSaveProject(opts)
 
@@ -480,7 +539,7 @@ export const setupGroup: CommandGroup = {
     'Flags:',
     '  --oauth-port <n>   pin the local OAuth callback port (firewall allowlist)',
     '  --token-ttl <h>    Personal Access Token TTL in hours (default 720 = 30 days, max 8760 = 1 year)',
-    '  --non-interactive  never prompt; auto-pick first project if needed',
+    '  --non-interactive  skip the project picker (auto-pick the first project)',
     '  --json             machine-readable output',
   ],
   defaultRun: runSetup,

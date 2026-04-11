@@ -37,10 +37,10 @@ export const apiGroup: CommandGroup = {
     const body = parsed.string.body
 
     const headers: Record<string, string> = api.authHeaders(apiKey)
-    if (body) headers['Content-Type'] = 'application/json'
+    if (body !== undefined) headers['Content-Type'] = 'application/json'
 
     const fetchOpts: RequestInit = { method, headers }
-    if (body) fetchOpts.body = body
+    if (body !== undefined) fetchOpts.body = body
 
     const response = await api.safeFetch(`${baseUrl}${path}`, fetchOpts, {
       what: `API ${method} ${path} failed`,

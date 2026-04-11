@@ -41,12 +41,27 @@ function loadConfigFile(): ConfigFile {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return {}
     throw err
   }
+  let parsed: unknown
   try {
-    return JSON.parse(raw) as ConfigFile
+    parsed = JSON.parse(raw)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`Config file at ${CONFIG_PATH} is not valid JSON: ${msg}`)
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(
+      `Config file at ${CONFIG_PATH} must contain a JSON object at the top level`,
+    )
+  }
+  const record = parsed as Record<string, unknown>
+  for (const key of ['apiKey', 'apiUrl', 'projectUuid'] as const) {
+    if (record[key] !== undefined && typeof record[key] !== 'string') {
+      throw new Error(
+        `Config file at ${CONFIG_PATH}: "${key}" must be a string when present`,
+      )
+    }
+  }
+  return record as ConfigFile
 }
 
 /**
