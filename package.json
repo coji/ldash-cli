@@ -1,6 +1,6 @@
 {
   "name": "@coji/ldash-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI tool for Lightdash API - query data, explore models, manage dashboards and charts",
   "main": "dist/cli.js",
   "type": "module",
@@ -16,7 +16,7 @@
   "scripts": {
     "generate": "mkdir -p src/generated && curl -f -o src/generated/swagger.json https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json && openapi-typescript src/generated/swagger.json -o src/generated/api.ts && node scripts/patch-generated.js",
     "prebuild": "node scripts/ensure-generated.js",
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/*.js",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/*.js",
     "pretypecheck": "node scripts/ensure-generated.js",
     "start": "node dist/cli.js",
     "test": "vitest run",
@@ -27,6 +27,7 @@
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "fix": "pnpm run format:fix && pnpm run lint --fix",
     "validate": "run-p format lint typecheck test",
+    "prepublishOnly": "pnpm run validate && pnpm run build",
     "prepare": "lefthook install || true"
   },
   "repository": {
