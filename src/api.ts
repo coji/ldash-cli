@@ -47,19 +47,19 @@ export function createClient(): {
   return { ...base, projectUuid }
 }
 
-function throwOnError(error: unknown): never {
-  const apiError =
-    typeof error === 'object' &&
-    error !== null &&
-    'error' in error &&
-    typeof (error as { error?: unknown }).error === 'object' &&
-    (error as { error?: unknown }).error !== null
-      ? (error as { error: { name?: string; message?: string } }).error
-      : undefined
+function extractApiError(
+  error: unknown,
+): { name?: string; message?: string } | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const inner = (error as Record<string, unknown>).error
+  if (typeof inner !== 'object' || inner === null) return undefined
+  return inner as { name?: string; message?: string }
+}
 
-  const name = apiError?.name ?? 'UnknownError'
-  const message =
-    apiError?.message ?? (typeof error === 'string' ? error : 'no message')
+function throwOnError(error: unknown): never {
+  const apiError = extractApiError(error)
+  const name = apiError?.name
+  const message = apiError?.message ?? 'no message'
 
   if (name === 'NotFoundError') {
     throw new CliError(
@@ -84,7 +84,7 @@ function throwOnError(error: unknown): never {
   }
   throw new CliError(
     'Lightdash API error',
-    `${name}: ${message}`,
+    name ? `${name}: ${message}` : message,
     'Run with --help for usage details.',
   )
 }
