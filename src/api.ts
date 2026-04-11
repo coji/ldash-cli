@@ -31,13 +31,20 @@ export async function safeFetch(
   }
 }
 
-export function createClientWithKey(
-  apiUrl: string,
-  apiKey: string,
+/**
+ * Typed client factory. With `apiKey`, bakes `Authorization: ApiKey <key>`
+ * into the default headers for every call. Without, returns an
+ * unauthenticated client — used by the OAuth sign-in flow where the
+ * Authorization header is supplied per-call (a short-lived OAuth access
+ * token for PAT creation, then the freshly minted PAT for /api/v1/user).
+ */
+export function createApiClient(
+  baseUrl: string,
+  apiKey?: string,
 ): LightdashClient {
   return createOpenApiFetchClient<paths>({
-    baseUrl: apiUrl,
-    headers: authHeaders(apiKey),
+    baseUrl,
+    ...(apiKey ? { headers: authHeaders(apiKey) } : {}),
   })
 }
 
@@ -54,7 +61,7 @@ export function createBaseClient(): {
       `Sign in with:  ldash setup\nOr set env var: LIGHTDASH_API_KEY=<token>\nConfig file: ${getConfigPath()}`,
     )
   }
-  const client = createClientWithKey(config.apiUrl, config.apiKey)
+  const client = createApiClient(config.apiUrl, config.apiKey)
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
 }
 

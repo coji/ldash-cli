@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import { URL } from 'node:url'
 import * as api from '../api.js'
+import { parseArgs } from '../args.js'
 import {
   ENV_API_KEY,
   ENV_API_URL,
@@ -11,7 +12,7 @@ import {
 } from '../config.js'
 import { CliError } from '../errors.js'
 import { loginWithOAuth, openBrowser } from '../oauth.js'
-import { maskSecret } from '../output.js'
+import { maskSecret, renderable } from '../output.js'
 import type { CommandGroup, Flags } from '../types.js'
 
 export interface SetupOptions {
@@ -24,102 +25,36 @@ export interface SetupOptions {
   tokenTtl?: number
 }
 
-const BOOLEAN_FLAGS = new Set(['--pat', '--non-interactive'])
-
-const VALUE_FLAGS = new Set([
-  '--api-key',
-  '--project-uuid',
-  '--oauth-port',
-  '--token-ttl',
-])
-
 const DEFAULT_URL = 'https://app.lightdash.cloud'
 
 export function parseSetupArgs(args: string[]): SetupOptions {
+  const parsed = parseArgs(args, {
+    positionalMax: 1,
+    positionals: ['url'],
+    boolean: ['pat', 'non-interactive'],
+    string: ['api-key', 'project-uuid'],
+    // `--token-ttl` is capped at 1 year — generous for CLI use, and keeps
+    // `Date.now() + ttl * 3_600_000` well away from Date overflow.
+    int: {
+      'oauth-port': { min: 1, max: 65535 },
+      'token-ttl': { min: 1, max: 8760 },
+    },
+  })
+
   const opts: SetupOptions = {
-    pat: false,
-    nonInteractive: false,
+    pat: parsed.boolean.pat,
+    nonInteractive: parsed.boolean['non-interactive'],
   }
-  const positional: string[] = []
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (!arg.startsWith('--')) {
-      positional.push(arg)
-      continue
-    }
-    if (BOOLEAN_FLAGS.has(arg)) {
-      if (arg === '--pat') opts.pat = true
-      else if (arg === '--non-interactive') opts.nonInteractive = true
-      continue
-    }
-    if (!VALUE_FLAGS.has(arg)) {
-      throw new CliError(
-        `Unknown flag "${arg}"`,
-        `The setup command does not recognize "${arg}".`,
-        'Run "ldash setup --help" for available flags.',
-      )
-    }
-    const value = args[i + 1]
-    // Reject `--api-key --project-uuid xxx` shapes where the next token is
-    // another flag — that was silently absorbing the following flag as the
-    // value for the previous one.
-    if (value === undefined || value.startsWith('--')) {
-      throw new CliError(
-        `Missing value for ${arg}`,
-        `The flag ${arg} expects a value.`,
-        `Example: ldash setup ${arg} <value>`,
-      )
-    }
-    i += 1
-    if (arg === '--api-key') opts.apiKey = value
-    else if (arg === '--project-uuid') opts.projectUuid = value
-    else if (arg === '--oauth-port')
-      opts.oauthPort = parsePositiveInt(arg, value, 65535)
-    else if (arg === '--token-ttl')
-      // Cap at 1 year — generous for CLI use, and keeps
-      // `Date.now() + ttl * 3_600_000` well away from Date overflow.
-      opts.tokenTtl = parsePositiveInt(arg, value, 8760)
-  }
-
-  if (positional.length > 1) {
-    throw new CliError(
-      `Too many positional arguments (${positional.length})`,
-      `setup accepts at most one URL, got: ${positional.join(', ')}`,
-      'Usage: ldash setup [<url>] [flags...]',
-    )
-  }
-  if (positional.length === 1) {
-    opts.url = positional[0]
-  }
+  if (parsed.positional.length === 1) opts.url = parsed.positional[0]
+  if (parsed.string['api-key'] !== undefined)
+    opts.apiKey = parsed.string['api-key']
+  if (parsed.string['project-uuid'] !== undefined)
+    opts.projectUuid = parsed.string['project-uuid']
+  if (parsed.int['oauth-port'] !== undefined)
+    opts.oauthPort = parsed.int['oauth-port']
+  if (parsed.int['token-ttl'] !== undefined)
+    opts.tokenTtl = parsed.int['token-ttl']
   return opts
-}
-
-/**
- * Parse a strict positive integer. `Number.parseInt('12h', 10)` would happily
- * return 12, so we reject anything that isn't pure digits before coercing.
- */
-function parsePositiveInt(flag: string, value: string, max?: number): number {
-  if (!/^\d+$/.test(value)) {
-    throw new CliError(
-      `Invalid ${flag} value "${value}"`,
-      `${flag} must be a positive whole number${max ? ` between 1 and ${max}` : ''}.`,
-      flag === '--oauth-port'
-        ? 'Example: ldash setup --oauth-port 8976'
-        : 'Example: ldash setup --token-ttl 720   (30 days)',
-    )
-  }
-  const n = Number(value)
-  if (n < 1 || (max !== undefined && n > max)) {
-    throw new CliError(
-      `Invalid ${flag} value "${value}"`,
-      `${flag} must be a positive whole number${max ? ` between 1 and ${max}` : ''}.`,
-      flag === '--oauth-port'
-        ? 'Example: ldash setup --oauth-port 8976'
-        : 'Example: ldash setup --token-ttl 720   (30 days)',
-    )
-  }
-  return n
 }
 
 export function normalizeUrl(input: string): string {
@@ -196,7 +131,7 @@ async function fetchProjectsWithKey(
   apiUrl: string,
   apiKey: string,
 ): Promise<{ projectUuid: string; name: string }[]> {
-  const client = api.createClientWithKey(apiUrl, apiKey)
+  const client = api.createApiClient(apiUrl, apiKey)
   const projects = await api.listProjects(client)
   return projects as { projectUuid: string; name: string }[]
 }
@@ -224,11 +159,6 @@ interface SetupResult {
   expiresAt?: string
   configFile: string
   message: string
-}
-
-function renderResult(result: SetupResult, flags: Flags): unknown {
-  if (flags.json) return result
-  return result.message
 }
 
 async function chooseProjectInteractive(
@@ -524,14 +454,19 @@ export function selectSetupFlow(opts: SetupOptions): SetupFlow {
 
 async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const opts = parseSetupArgs(args)
+  let result: SetupResult
   switch (selectSetupFlow(opts)) {
     case 'pat':
-      return renderResult(await runPatFlow(opts), flags)
+      result = await runPatFlow(opts)
+      break
     case 'scripted':
-      return renderResult(await runNonInteractive(opts), flags)
+      result = await runNonInteractive(opts)
+      break
     case 'oauth':
-      return renderResult(await runOAuthFlow(opts), flags)
+      result = await runOAuthFlow(opts)
+      break
   }
+  return renderable(result, result.message, flags)
 }
 
 export const setupGroup: CommandGroup = {

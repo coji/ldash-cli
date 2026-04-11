@@ -1,6 +1,6 @@
 import * as api from '../api.js'
+import { parseArgs } from '../args.js'
 import { CliError } from '../errors.js'
-import { parseFlags } from '../output.js'
 import type { CommandGroup } from '../types.js'
 
 export const apiGroup: CommandGroup = {
@@ -11,7 +11,12 @@ export const apiGroup: CommandGroup = {
   ],
   commands: {},
   defaultRun: async (args) => {
-    const method = args[0]?.toUpperCase()
+    const parsed = parseArgs(args, {
+      positionalMax: 2,
+      positionals: ['method', 'path'],
+      string: ['body'],
+    })
+    const method = parsed.positional[0]?.toUpperCase()
     if (!method) {
       throw new CliError(
         'Missing HTTP method',
@@ -19,7 +24,7 @@ export const apiGroup: CommandGroup = {
         'Example: ldash api GET /api/v1/org/projects',
       )
     }
-    const path = args[1]
+    const path = parsed.positional[1]
     if (!path) {
       throw new CliError(
         'Missing API path',
@@ -29,13 +34,13 @@ export const apiGroup: CommandGroup = {
     }
 
     const { baseUrl, apiKey } = api.createBaseClient()
-    const opts = parseFlags(args.slice(2))
+    const body = parsed.string.body
 
     const headers: Record<string, string> = api.authHeaders(apiKey)
-    if (opts.body) headers['Content-Type'] = 'application/json'
+    if (body) headers['Content-Type'] = 'application/json'
 
     const fetchOpts: RequestInit = { method, headers }
-    if (opts.body) fetchOpts.body = opts.body
+    if (body) fetchOpts.body = body
 
     const response = await api.safeFetch(`${baseUrl}${path}`, fetchOpts, {
       what: `API ${method} ${path} failed`,

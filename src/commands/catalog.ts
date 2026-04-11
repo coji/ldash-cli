@@ -1,5 +1,5 @@
 import * as api from '../api.js'
-import { missingArg } from '../errors.js'
+import { parseArgs } from '../args.js'
 import type { CommandGroup } from '../types.js'
 
 export const catalogGroup: CommandGroup = {
@@ -49,11 +49,13 @@ export const catalogGroup: CommandGroup = {
       examples: ['ldash catalog metadata orders'],
       nextSteps: ['ldash catalog analytics <table> for usage analytics'],
       run: (args) => {
-        const table = args[0]
-        if (!table || table.startsWith('--'))
-          throw missingArg('table', 'catalog metadata')
+        const parsed = parseArgs(args, {
+          positionals: ['table'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client, projectUuid } = api.createClient()
-        return api.getMetadata(client, projectUuid, table)
+        return api.getMetadata(client, projectUuid, parsed.positional[0])
       },
     },
     analytics: {
@@ -62,11 +64,13 @@ export const catalogGroup: CommandGroup = {
       examples: ['ldash catalog analytics orders'],
       nextSteps: ['ldash catalog metadata <table> for table structure'],
       run: (args) => {
-        const table = args[0]
-        if (!table || table.startsWith('--'))
-          throw missingArg('table', 'catalog analytics')
+        const parsed = parseArgs(args, {
+          positionals: ['table'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client, projectUuid } = api.createClient()
-        return api.getAnalytics(client, projectUuid, table)
+        return api.getAnalytics(client, projectUuid, parsed.positional[0])
       },
     },
   },

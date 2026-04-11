@@ -1,10 +1,11 @@
+import { parseArgs } from '../args.js'
 import {
   getConfigPath,
   getResolvedConfig,
   type ResolvedField,
   saveConfig,
 } from '../config.js'
-import { maskSecret, parseFlags } from '../output.js'
+import { maskSecret, renderable } from '../output.js'
 import type { CommandGroup, Flags } from '../types.js'
 
 function sourceLabel(field: ResolvedField<unknown>): string {
@@ -41,11 +42,15 @@ export const configGroup: CommandGroup = {
         'ldash explore list to start using the CLI',
       ],
       run: (args) => {
-        const opts = parseFlags(args)
+        const parsed = parseArgs(args, {
+          positionalMax: 0,
+          string: ['api-key', 'api-url', 'project-uuid'],
+        })
         const values: Record<string, string> = {}
-        if (opts['api-key']) values.apiKey = opts['api-key']
-        if (opts['api-url']) values.apiUrl = opts['api-url']
-        if (opts['project-uuid']) values.projectUuid = opts['project-uuid']
+        if (parsed.string['api-key']) values.apiKey = parsed.string['api-key']
+        if (parsed.string['api-url']) values.apiUrl = parsed.string['api-url']
+        if (parsed.string['project-uuid'])
+          values.projectUuid = parsed.string['project-uuid']
         if (Object.keys(values).length === 0) {
           return Promise.resolve(
             'No values provided. Use --api-key, --api-url, or --project-uuid.',
@@ -104,10 +109,6 @@ export const configGroup: CommandGroup = {
               : [],
         }
 
-        if (flags.json) {
-          return Promise.resolve(structured)
-        }
-
         const labelWidth = 8
         const valueWidth = Math.max(
           r.apiUrl.value.length,
@@ -134,7 +135,7 @@ export const configGroup: CommandGroup = {
             `   Unset to fall back to the saved config or defaults: ${envOverrides.join(', ')}`,
           )
         }
-        return Promise.resolve(lines.join('\n'))
+        return Promise.resolve(renderable(structured, lines.join('\n'), flags))
       },
     },
     path: {
