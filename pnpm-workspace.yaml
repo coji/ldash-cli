@@ -1,0 +1,10 @@
+onlyBuiltDependencies:
+  - b
+  - d
+  - e
+  - esbuild
+  - i
+  - l
+  - lefthook
+  - s
+  - u
