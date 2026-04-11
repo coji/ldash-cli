@@ -201,15 +201,18 @@ async function fetchUser(
   return body.results
 }
 
-function resolvePort(requested: number | undefined): number {
+export function resolvePort(requested: number | undefined): number {
   if (requested !== undefined) return requested
   const envPortStr = process.env.LIGHTDASH_OAUTH_PORT
   if (!envPortStr) return 0
-  const envPort = Number.parseInt(envPortStr, 10)
-  if (Number.isNaN(envPort) || envPort < 1 || envPort > 65535) {
+  // Strict digits-only check — Number.parseInt('8080abc', 10) === 8080
+  // would otherwise silently accept malformed values.
+  const looksNumeric = /^\d+$/.test(envPortStr)
+  const envPort = looksNumeric ? Number(envPortStr) : Number.NaN
+  if (!looksNumeric || envPort < 1 || envPort > 65535) {
     throw new CliError(
       'Invalid LIGHTDASH_OAUTH_PORT',
-      `LIGHTDASH_OAUTH_PORT must be a number between 1 and 65535, got "${envPortStr}".`,
+      `LIGHTDASH_OAUTH_PORT must be a whole number between 1 and 65535, got "${envPortStr}".`,
       'Unset the env var or pass --oauth-port <n> explicitly.',
     )
   }
