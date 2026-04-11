@@ -4,7 +4,7 @@ import {
   type ResolvedField,
   saveConfig,
 } from '../config.js'
-import { parseFlags } from '../output.js'
+import { maskSecret, parseFlags } from '../output.js'
 import type { CommandGroup, Flags } from '../types.js'
 
 function sourceLabel(field: ResolvedField<unknown>): string {
@@ -18,10 +18,6 @@ function sourceLabel(field: ResolvedField<unknown>): string {
     case 'unset':
       return 'not set'
   }
-}
-
-function maskKey(key: string | undefined): string {
-  return key ? `***${key.slice(-4)}` : '(not set)'
 }
 
 export const configGroup: CommandGroup = {
@@ -68,7 +64,7 @@ export const configGroup: CommandGroup = {
       examples: ['ldash config show', 'ldash config show --json'],
       nextSteps: [
         'ldash config set to update saved values',
-        'unset LIGHTDASH_API_KEY (etc.) to fall back to the saved config',
+        'unset LIGHTDASH_API_KEY (etc.) to fall back to the saved config or defaults',
       ],
       run: (_args, flags: Flags) => {
         const r = getResolvedConfig()
@@ -90,7 +86,7 @@ export const configGroup: CommandGroup = {
             envVar: r.apiUrl.envVar,
           },
           apiKey: {
-            masked: maskKey(r.apiKey.value),
+            masked: maskSecret(r.apiKey.value),
             source: r.apiKey.source,
             envVar: r.apiKey.envVar,
           },
@@ -103,7 +99,7 @@ export const configGroup: CommandGroup = {
           warnings:
             envOverrides.length > 0
               ? [
-                  `Environment variable${envOverrides.length > 1 ? 's' : ''} ${envOverrides.join(', ')} override the saved config`,
+                  `${envOverrides.length} setting${envOverrides.length > 1 ? 's' : ''} currently resolved from environment variables: ${envOverrides.join(', ')}`,
                 ]
               : [],
         }
@@ -112,11 +108,10 @@ export const configGroup: CommandGroup = {
           return Promise.resolve(structured)
         }
 
-        // Pretty-printed, with right-aligned labels and source annotations.
         const labelWidth = 8
         const valueWidth = Math.max(
           r.apiUrl.value.length,
-          maskKey(r.apiKey.value).length,
+          maskSecret(r.apiKey.value).length,
           (r.projectUuid.value ?? '(not set)').length,
         )
         const pad = (label: string, value: string) =>
@@ -126,17 +121,17 @@ export const configGroup: CommandGroup = {
           s.source === 'env' ? '  ⚠' : ''
         const lines = [
           `${pad('URL:', r.apiUrl.value)}  (${sourceLabel(r.apiUrl)})${warnMark(r.apiUrl)}`,
-          `${pad('API Key:', maskKey(r.apiKey.value))}  (${sourceLabel(r.apiKey)})${warnMark(r.apiKey)}`,
+          `${pad('API Key:', maskSecret(r.apiKey.value))}  (${sourceLabel(r.apiKey)})${warnMark(r.apiKey)}`,
           `${pad('Project:', r.projectUuid.value ?? '(not set)')}  (${sourceLabel(r.projectUuid)})${warnMark(r.projectUuid)}`,
           `  File:    ${r.configFile}`,
         ]
         if (envOverrides.length > 0) {
           lines.push('')
           lines.push(
-            `⚠  ${envOverrides.length} setting${envOverrides.length > 1 ? 's are' : ' is'} overridden by environment variables.`,
+            `⚠  ${envOverrides.length} setting${envOverrides.length > 1 ? 's are' : ' is'} currently resolved from environment variables.`,
           )
           lines.push(
-            `   To use the saved config, unset: ${envOverrides.join(', ')}`,
+            `   Unset to fall back to the saved config or defaults: ${envOverrides.join(', ')}`,
           )
         }
         return Promise.resolve(lines.join('\n'))

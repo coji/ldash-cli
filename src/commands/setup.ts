@@ -11,6 +11,7 @@ import {
 } from '../config.js'
 import { CliError } from '../errors.js'
 import { loginWithOAuth, openBrowser } from '../oauth.js'
+import { maskSecret } from '../output.js'
 import type { CommandGroup, Flags } from '../types.js'
 
 export interface SetupOptions {
@@ -59,43 +60,63 @@ export function parseSetupArgs(args: string[]): SetupOptions {
         'Run "ldash setup --help" for available flags.',
       )
     }
-    const value = args[++i]
-    if (value === undefined) {
+    const value = args[i + 1]
+    // Reject `--api-key --project-uuid xxx` shapes where the next token is
+    // another flag — that was silently absorbing the following flag as the
+    // value for the previous one.
+    if (value === undefined || value.startsWith('--')) {
       throw new CliError(
         `Missing value for ${arg}`,
         `The flag ${arg} expects a value.`,
         `Example: ldash setup ${arg} <value>`,
       )
     }
+    i += 1
     if (arg === '--api-key') opts.apiKey = value
     else if (arg === '--project-uuid') opts.projectUuid = value
-    else if (arg === '--oauth-port') {
-      const n = Number.parseInt(value, 10)
-      if (Number.isNaN(n) || n < 1 || n > 65535) {
-        throw new CliError(
-          `Invalid --oauth-port value "${value}"`,
-          'Port must be a number between 1 and 65535.',
-          'Example: ldash setup --oauth-port 8976',
-        )
-      }
-      opts.oauthPort = n
-    } else if (arg === '--token-ttl') {
-      const n = Number.parseInt(value, 10)
-      if (Number.isNaN(n) || n < 1) {
-        throw new CliError(
-          `Invalid --token-ttl value "${value}"`,
-          'Token TTL must be a positive number of hours.',
-          'Example: ldash setup --token-ttl 720   (30 days)',
-        )
-      }
-      opts.tokenTtl = n
-    }
+    else if (arg === '--oauth-port')
+      opts.oauthPort = parsePositiveInt(arg, value, 65535)
+    else if (arg === '--token-ttl') opts.tokenTtl = parsePositiveInt(arg, value)
   }
 
-  if (positional.length > 0) {
+  if (positional.length > 1) {
+    throw new CliError(
+      `Too many positional arguments (${positional.length})`,
+      `setup accepts at most one URL, got: ${positional.join(', ')}`,
+      'Usage: ldash setup [<url>] [flags...]',
+    )
+  }
+  if (positional.length === 1) {
     opts.url = positional[0]
   }
   return opts
+}
+
+/**
+ * Parse a strict positive integer. `Number.parseInt('12h', 10)` would happily
+ * return 12, so we reject anything that isn't pure digits before coercing.
+ */
+function parsePositiveInt(flag: string, value: string, max?: number): number {
+  if (!/^\d+$/.test(value)) {
+    throw new CliError(
+      `Invalid ${flag} value "${value}"`,
+      `${flag} must be a positive whole number${max ? ` between 1 and ${max}` : ''}.`,
+      flag === '--oauth-port'
+        ? 'Example: ldash setup --oauth-port 8976'
+        : 'Example: ldash setup --token-ttl 720   (30 days)',
+    )
+  }
+  const n = Number(value)
+  if (n < 1 || (max !== undefined && n > max)) {
+    throw new CliError(
+      `Invalid ${flag} value "${value}"`,
+      `${flag} must be a positive whole number${max ? ` between 1 and ${max}` : ''}.`,
+      flag === '--oauth-port'
+        ? 'Example: ldash setup --oauth-port 8976'
+        : 'Example: ldash setup --token-ttl 720   (30 days)',
+    )
+  }
+  return n
 }
 
 export function normalizeUrl(input: string): string {
@@ -453,7 +474,7 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   const lines = [
     `✓ Config saved to ${getConfigPath()}`,
     `    URL:     ${cfg.apiUrl}`,
-    `    API Key: ${cfg.apiKey ? `***${cfg.apiKey.slice(-4)}` : '(not set)'}`,
+    `    API Key: ${maskSecret(cfg.apiKey)}`,
     `    Project: ${cfg.projectUuid ?? '(not set)'}`,
   ]
   if (updates.apiKey && !verified) {

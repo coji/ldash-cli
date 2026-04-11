@@ -79,11 +79,14 @@ function throwOnError(error: unknown): never {
     const apiKeyField = getResolvedConfig().apiKey
     let hint: string
     if (apiKeyField.source === 'env' && apiKeyField.envVar) {
+      const env = apiKeyField.envVar
       hint = [
-        `This key comes from environment variable ${apiKeyField.envVar}.`,
-        `  - Update it:  export ${apiKeyField.envVar}=<new-token>`,
-        `  - Or unset to use saved config:  unset ${apiKeyField.envVar}`,
-        '  - Or re-run sign in:             ldash setup',
+        `This key comes from environment variable ${env}.`,
+        `  - Update (POSIX):       export ${env}=<new-token>`,
+        `  - Update (PowerShell):  $env:${env} = "<new-token>"`,
+        `  - Or unset (POSIX):     unset ${env}`,
+        `  - Or unset (PowerShell): Remove-Item Env:${env}`,
+        '  - Or re-run sign in:    ldash setup',
       ].join('\n      ')
     } else if (apiKeyField.source === 'file') {
       hint = [

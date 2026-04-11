@@ -1,5 +1,15 @@
 import type { Flags } from './types.js'
 
+/**
+ * Mask a secret for display. Returns a fixed "****" for values short enough
+ * that showing a suffix would leak meaningful information.
+ */
+export function maskSecret(value: string | undefined): string {
+  if (!value) return '(not set)'
+  if (value.length <= 8) return '****'
+  return `***${value.slice(-4)}`
+}
+
 export function output(data: unknown, flags: Flags): void {
   if (typeof data === 'string') {
     // Strings are human-oriented messages — print raw so newlines render.

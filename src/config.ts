@@ -32,10 +32,20 @@ export interface ResolvedConfig {
 }
 
 function loadConfigFile(): ConfigFile {
+  let raw: string
   try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as ConfigFile
-  } catch {
-    return {}
+    raw = readFileSync(CONFIG_PATH, 'utf-8')
+  } catch (err) {
+    // Missing file is the expected "no config yet" state; anything else
+    // (permission denied, etc.) should surface to the user.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return {}
+    throw err
+  }
+  try {
+    return JSON.parse(raw) as ConfigFile
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`Config file at ${CONFIG_PATH} is not valid JSON: ${msg}`)
   }
 }
 

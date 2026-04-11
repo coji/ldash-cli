@@ -113,6 +113,32 @@ describe('parseSetupArgs', () => {
     expect(() => parseSetupArgs(['--token-ttl', '0'])).toThrow(CliError)
     expect(() => parseSetupArgs(['--token-ttl', 'abc'])).toThrow(CliError)
   })
+
+  it('rejects partial numeric values for --oauth-port', () => {
+    // Regression: Number.parseInt('12h', 10) === 12 used to slip through.
+    expect(() => parseSetupArgs(['--oauth-port', '12h'])).toThrow(CliError)
+    expect(() => parseSetupArgs(['--oauth-port', '1.5'])).toThrow(CliError)
+  })
+
+  it('rejects partial numeric values for --token-ttl', () => {
+    expect(() => parseSetupArgs(['--token-ttl', '720x'])).toThrow(CliError)
+    expect(() => parseSetupArgs(['--token-ttl', '1.5'])).toThrow(CliError)
+  })
+
+  it('rejects a value flag whose next token is another flag', () => {
+    // Regression: parser used to greedily consume the next token as a
+    // value, so `--api-key --project-uuid xxx` would set apiKey to
+    // "--project-uuid" and silently drop the real project.
+    expect(() =>
+      parseSetupArgs(['--api-key', '--project-uuid', 'uuid']),
+    ).toThrow(CliError)
+  })
+
+  it('rejects multiple positional arguments', () => {
+    expect(() =>
+      parseSetupArgs(['https://a.example.com', 'https://b.example.com']),
+    ).toThrow(CliError)
+  })
 })
 
 describe('selectSetupFlow', () => {

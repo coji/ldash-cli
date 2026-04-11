@@ -48,7 +48,9 @@ describe('getResolvedConfig', () => {
 
   it('falls back to defaults when nothing is configured', () => {
     mockedReadFileSync.mockImplementation(() => {
-      throw new Error('ENOENT')
+      const err = new Error('no such file') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
     })
     const r = getResolvedConfig()
     expect(r.apiKey).toEqual({ value: undefined, source: 'unset' })
@@ -95,6 +97,13 @@ describe('getResolvedConfig', () => {
       source: 'env',
       envVar: ENV_API_URL,
     })
+  })
+
+  it('throws when the config file exists but contains invalid JSON', () => {
+    // Regression: previously any error (including SyntaxError from
+    // JSON.parse) was swallowed and silently treated as "no config".
+    mockedReadFileSync.mockReturnValue('{ not valid json')
+    expect(() => getResolvedConfig()).toThrow(/not valid JSON/)
   })
 
   it('mixes sources independently per field', () => {
