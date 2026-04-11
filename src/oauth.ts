@@ -1,14 +1,18 @@
-import { exec } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import * as http from 'node:http'
 import { URL } from 'node:url'
 import { promisify } from 'node:util'
 import * as client from 'openid-client'
 import { CliError } from './errors.js'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 const CLIENT_ID = 'lightdash-cli'
 const CALLBACK_PATH = '/callback'
+// Bind the local callback on an explicit loopback IP so the authorization
+// server's redirect always reaches the right stack. Using "localhost"
+// would be at the mercy of /etc/hosts / IPv6 resolution.
+const LOOPBACK_HOST = '127.0.0.1'
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_TOKEN_TTL_HOURS = 24 * 30 // 30 days
 
@@ -41,16 +45,24 @@ export interface OAuthLoginResult {
  * fallback.
  */
 export async function openBrowser(url: string): Promise<void> {
+  // Pass the URL as an argv element (never via a shell) so characters like
+  // " or $() in query params can't execute anything on the user's machine.
+  const { platform } = process
+  let cmd: string
+  let args: string[]
+  if (platform === 'darwin') {
+    cmd = 'open'
+    args = [url]
+  } else if (platform === 'win32') {
+    // `start` is a cmd.exe builtin; the empty "" is the window title.
+    cmd = 'cmd'
+    args = ['/c', 'start', '', url]
+  } else {
+    cmd = 'xdg-open'
+    args = [url]
+  }
   try {
-    const { platform } = process
-    if (platform === 'darwin') {
-      await execAsync(`open "${url}"`)
-    } else if (platform === 'win32') {
-      // start needs an empty title arg when the URL is quoted
-      await execAsync(`start "" "${url}"`)
-    } else {
-      await execAsync(`xdg-open "${url}"`)
-    }
+    await execFileAsync(cmd, args)
   } catch {
     // Intentional: the caller prints the URL before calling us.
   }
@@ -263,7 +275,7 @@ export async function loginWithOAuth(
       res.end('Not Found')
       return
     }
-    const callbackUrl = new URL(req.url, `http://localhost:${port}`)
+    const callbackUrl = new URL(req.url, `http://${LOOPBACK_HOST}:${port}`)
     const errorParam = callbackUrl.searchParams.get('error')
     if (errorParam) {
       const desc =
@@ -301,7 +313,7 @@ export async function loginWithOAuth(
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, LOOPBACK_HOST, () => {
       const address = server.address()
       if (address && typeof address === 'object') {
         port = address.port
@@ -311,7 +323,7 @@ export async function loginWithOAuth(
     })
   })
 
-  const redirectUri = `http://localhost:${port}/callback`
+  const redirectUri = `http://${LOOPBACK_HOST}:${port}/callback`
 
   let timeoutHandle: NodeJS.Timeout | undefined
 

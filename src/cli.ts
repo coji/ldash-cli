@@ -144,7 +144,7 @@ async function main(args: string[], flags: Flags): Promise<void> {
   if (group.defaultRun) {
     const restArgs = args.slice(1)
 
-    if (restArgs[0] === '--help' || restArgs[0] === '-h') {
+    if (restArgs.includes('--help') || restArgs.includes('-h')) {
       printGroupHelp(groupName, group)
       return
     }

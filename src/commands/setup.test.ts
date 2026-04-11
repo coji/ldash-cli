@@ -29,6 +29,15 @@ describe('normalizeUrl', () => {
   it('trims whitespace', () => {
     expect(normalizeUrl('  app  ')).toBe('https://app.lightdash.cloud')
   })
+
+  it('wraps URL parse failures in CliError', () => {
+    expect(() => normalizeUrl('https://')).toThrow(CliError)
+    try {
+      normalizeUrl('https://')
+    } catch (err) {
+      expect((err as CliError).what).toContain('Invalid URL')
+    }
+  })
 })
 
 describe('parseSetupArgs', () => {

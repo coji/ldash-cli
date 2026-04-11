@@ -104,8 +104,16 @@ export function normalizeUrl(input: string): string {
     url = `${url}.lightdash.cloud`
   }
   if (!/^https?:\/\//.test(url)) url = `https://${url}`
-  const parsed = new URL(url)
-  return `${parsed.protocol}//${parsed.host}`
+  try {
+    const parsed = new URL(url)
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    throw new CliError(
+      `Invalid URL "${input}"`,
+      'Could not parse the provided URL.',
+      'Example: ldash setup https://app.lightdash.cloud',
+    )
+  }
 }
 
 function formatDate(d: Date): string {
@@ -473,17 +481,18 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
 async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const opts = parseSetupArgs(args)
 
-  // Any scripting-style flag forces the non-interactive path, even in a TTY.
-  const nonInteractiveByFlag =
-    opts.apiKey !== undefined ||
-    opts.projectUuid !== undefined ||
-    opts.nonInteractive
+  // `--non-interactive` on its own is a prompt-suppressor, not a flow
+  // selector — the OAuth and PAT flows both respect it via selectAndSaveProject.
+  // We only short-circuit to the scripted writer when the user actually
+  // supplied something for it to write.
+  const scriptedInputProvided =
+    opts.apiKey !== undefined || opts.projectUuid !== undefined
 
   if (opts.pat) {
     return renderResult(await runPatFlow(opts), flags)
   }
 
-  if (nonInteractiveByFlag) {
+  if (scriptedInputProvided) {
     return renderResult(await runNonInteractive(opts), flags)
   }
 

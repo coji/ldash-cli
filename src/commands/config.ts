@@ -125,7 +125,7 @@ export const configGroup: CommandGroup = {
         const warnMark = (s: ResolvedField<unknown>) =>
           s.source === 'env' ? '  ⚠' : ''
         const lines = [
-          `${pad('URL:', r.apiUrl.value)}  (${sourceLabel(r.apiUrl)})`,
+          `${pad('URL:', r.apiUrl.value)}  (${sourceLabel(r.apiUrl)})${warnMark(r.apiUrl)}`,
           `${pad('API Key:', maskKey(r.apiKey.value))}  (${sourceLabel(r.apiKey)})${warnMark(r.apiKey)}`,
           `${pad('Project:', r.projectUuid.value ?? '(not set)')}  (${sourceLabel(r.projectUuid)})${warnMark(r.projectUuid)}`,
           `  File:    ${r.configFile}`,

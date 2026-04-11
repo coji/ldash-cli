@@ -49,25 +49,28 @@ export function getResolvedConfig(): ResolvedConfig {
   const file = loadConfigFile()
 
   const apiKeyEnv = process.env[ENV_API_KEY]
-  const apiKey: ResolvedField<string | undefined> = apiKeyEnv
-    ? { value: apiKeyEnv, source: 'env', envVar: ENV_API_KEY }
-    : file.apiKey
-      ? { value: file.apiKey, source: 'file' }
-      : { value: undefined, source: 'unset' }
+  const apiKey: ResolvedField<string | undefined> =
+    apiKeyEnv !== undefined
+      ? { value: apiKeyEnv, source: 'env', envVar: ENV_API_KEY }
+      : file.apiKey !== undefined
+        ? { value: file.apiKey, source: 'file' }
+        : { value: undefined, source: 'unset' }
 
   const apiUrlEnv = process.env[ENV_API_URL]
-  const apiUrl: ResolvedField<string> = apiUrlEnv
-    ? { value: apiUrlEnv, source: 'env', envVar: ENV_API_URL }
-    : file.apiUrl
-      ? { value: file.apiUrl, source: 'file' }
-      : { value: DEFAULT_API_URL, source: 'default' }
+  const apiUrl: ResolvedField<string> =
+    apiUrlEnv !== undefined
+      ? { value: apiUrlEnv, source: 'env', envVar: ENV_API_URL }
+      : file.apiUrl !== undefined
+        ? { value: file.apiUrl, source: 'file' }
+        : { value: DEFAULT_API_URL, source: 'default' }
 
   const projectUuidEnv = process.env[ENV_PROJECT_UUID]
-  const projectUuid: ResolvedField<string | undefined> = projectUuidEnv
-    ? { value: projectUuidEnv, source: 'env', envVar: ENV_PROJECT_UUID }
-    : file.projectUuid
-      ? { value: file.projectUuid, source: 'file' }
-      : { value: undefined, source: 'unset' }
+  const projectUuid: ResolvedField<string | undefined> =
+    projectUuidEnv !== undefined
+      ? { value: projectUuidEnv, source: 'env', envVar: ENV_PROJECT_UUID }
+      : file.projectUuid !== undefined
+        ? { value: file.projectUuid, source: 'file' }
+        : { value: undefined, source: 'unset' }
 
   return { apiKey, apiUrl, projectUuid, configFile: CONFIG_PATH }
 }
