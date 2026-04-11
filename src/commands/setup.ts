@@ -131,6 +131,9 @@ function resolveUrl(opts: SetupOptions, banner?: string): Promise<string> {
  * Read a line of input without echoing it back to the terminal — used for
  * the PAT paste prompt so the token never lands in the user's scrollback.
  * Falls back to plain readline if stdin is not a TTY (no echo control there).
+ *
+ * The terminal restoration is wrapped in a try/finally so the user is never
+ * left in raw-mode if the surrounding flow throws between the await points.
  */
 async function askHidden(prompt: string): Promise<string> {
   if (!process.stdin.isTTY) {
@@ -148,54 +151,43 @@ async function askHidden(prompt: string): Promise<string> {
   process.stdin.setRawMode(true)
   process.stdin.resume()
   process.stdin.setEncoding('utf8')
-  let buffer = ''
-  return new Promise<string>((resolve) => {
-    const onData = (chunk: string) => {
-      for (const ch of chunk) {
-        const code = ch.charCodeAt(0)
-        if (code === 0x0d || code === 0x0a) {
-          process.stdin.removeListener('data', onData)
-          process.stdin.setRawMode(false)
-          process.stdin.pause()
-          process.stdout.write('\n')
-          resolve(buffer)
-          return
+  try {
+    let buffer = ''
+    return await new Promise<string>((resolve) => {
+      const onData = (chunk: string) => {
+        for (const ch of chunk) {
+          const code = ch.charCodeAt(0)
+          if (code === 0x0d || code === 0x0a) {
+            process.stdin.removeListener('data', onData)
+            resolve(buffer)
+            return
+          }
+          if (code === 0x03) {
+            process.stdin.removeListener('data', onData)
+            // Node restores cooked mode on exit; no further cleanup needed.
+            process.exit(130)
+          }
+          if (code === 0x7f || code === 0x08) {
+            buffer = buffer.slice(0, -1)
+            continue
+          }
+          if (code < 0x20) continue
+          buffer += ch
         }
-        if (code === 0x03) {
-          process.stdin.removeListener('data', onData)
-          process.stdin.setRawMode(false)
-          process.stdin.pause()
-          process.stdout.write('\n')
-          process.exit(130)
-        }
-        if (code === 0x7f || code === 0x08) {
-          buffer = buffer.slice(0, -1)
-          continue
-        }
-        if (code < 0x20) continue
-        buffer += ch
       }
-    }
-    process.stdin.on('data', onData)
-  })
+      process.stdin.on('data', onData)
+    })
+  } finally {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false)
+    process.stdin.pause()
+    process.stdout.write('\n')
+  }
 }
 
-async function fetchProjectsWithKey(
-  apiUrl: string,
-  apiKey: string,
-): Promise<{ projectUuid: string; name: string }[]> {
-  const client = api.createApiClient(apiUrl, apiKey)
-  const projects = await api.listProjects(client)
-  return projects as { projectUuid: string; name: string }[]
-}
-
-async function fetchProjectsFromSavedConfig(): Promise<
-  { projectUuid: string; name: string }[]
-> {
-  const { client } = api.createBaseClient()
-  const projects = await api.listProjects(client)
-  return projects as { projectUuid: string; name: string }[]
-}
+// Project shape comes straight from the OpenAPI spec via api.listProjects so
+// any drift in the upstream type fails the build instead of slipping past
+// an `as` cast.
+type Project = Awaited<ReturnType<typeof api.listProjects>>[number]
 
 interface SetupResult {
   ok: true
@@ -215,8 +207,8 @@ interface SetupResult {
 }
 
 async function chooseProjectInteractive(
-  projects: { projectUuid: string; name: string }[],
-): Promise<{ projectUuid: string; name: string } | undefined> {
+  projects: Project[],
+): Promise<Project | undefined> {
   if (projects.length === 0) return undefined
   if (projects.length === 1) {
     console.error(`  ✓ Using the only project: ${projects[0].name}`)
@@ -257,9 +249,10 @@ async function selectAndSaveProject(
     return { projectUuid: opts.projectUuid }
   }
 
-  let projects: { projectUuid: string; name: string }[]
+  let projects: Project[]
   try {
-    projects = await fetchProjectsFromSavedConfig()
+    const { client } = api.createBaseClient()
+    projects = await api.listProjects(client)
   } catch (err) {
     throw new CliError(
       'Could not fetch project list',
@@ -397,7 +390,7 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
   // Verify the token against the Lightdash API before persisting it, so a
   // typo or expired PAT doesn't leave a broken credential on disk.
   try {
-    await fetchProjectsWithKey(apiUrl, token)
+    await api.listProjects(api.createApiClient(apiUrl, token))
   } catch (err) {
     throw new CliError(
       'Token verification failed',
@@ -453,7 +446,9 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   if (updates.apiKey) {
     const effectiveUrl = updates.apiUrl ?? getConfig().apiUrl
     try {
-      const projects = await fetchProjectsWithKey(effectiveUrl, updates.apiKey)
+      const projects = await api.listProjects(
+        api.createApiClient(effectiveUrl, updates.apiKey),
+      )
       verified = true
       if (!updates.projectUuid && projects.length > 0 && opts.nonInteractive) {
         updates.projectUuid = projects[0].projectUuid

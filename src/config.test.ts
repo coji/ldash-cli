@@ -13,18 +13,35 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     readFileSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    renameSync: vi.fn(),
+    unlinkSync: vi.fn(),
   }
 })
 
-import { readFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import {
   ENV_API_KEY,
   ENV_API_URL,
   ENV_PROJECT_UUID,
   getResolvedConfig,
+  saveConfig,
 } from './config.js'
 
 const mockedReadFileSync = readFileSync as MockedFunction<typeof readFileSync>
+const mockedWriteFileSync = writeFileSync as MockedFunction<
+  typeof writeFileSync
+>
+const mockedMkdirSync = mkdirSync as MockedFunction<typeof mkdirSync>
+const mockedRenameSync = renameSync as MockedFunction<typeof renameSync>
+const mockedUnlinkSync = unlinkSync as MockedFunction<typeof unlinkSync>
 
 const ENV_KEYS = [ENV_API_KEY, ENV_API_URL, ENV_PROJECT_UUID] as const
 
@@ -144,6 +161,65 @@ describe('getResolvedConfig', () => {
       value: 'env-uuid',
       source: 'env',
       envVar: ENV_PROJECT_UUID,
+    })
+  })
+})
+
+describe('saveConfig', () => {
+  beforeEach(() => {
+    mockedReadFileSync.mockImplementation(() => {
+      const err = new Error('no such file') as NodeJS.ErrnoException
+      err.code = 'ENOENT'
+      throw err
+    })
+    mockedWriteFileSync.mockReset()
+    mockedMkdirSync.mockReset()
+    mockedRenameSync.mockReset()
+    mockedUnlinkSync.mockReset()
+  })
+
+  it('creates the parent directory with mode 0o700', () => {
+    saveConfig({ apiKey: 'tok' })
+    expect(mockedMkdirSync).toHaveBeenCalledWith(
+      expect.stringContaining('/.config/ldash'),
+      expect.objectContaining({ recursive: true, mode: 0o700 }),
+    )
+  })
+
+  it('writes to a temp file with mode 0o600 then renames atomically', () => {
+    saveConfig({ apiKey: 'tok' })
+
+    expect(mockedWriteFileSync).toHaveBeenCalledTimes(1)
+    const [tmpPath, contents, opts] = mockedWriteFileSync.mock.calls[0]
+    expect(String(tmpPath)).toMatch(/config\.json\.\d+\.tmp$/)
+    expect(opts).toEqual(expect.objectContaining({ mode: 0o600 }))
+    expect(JSON.parse(String(contents))).toEqual({ apiKey: 'tok' })
+
+    expect(mockedRenameSync).toHaveBeenCalledTimes(1)
+    const [renameFrom, renameTo] = mockedRenameSync.mock.calls[0]
+    expect(renameFrom).toBe(tmpPath)
+    expect(String(renameTo)).toMatch(/config\.json$/)
+  })
+
+  it('cleans up the temp file when the rename fails', () => {
+    mockedRenameSync.mockImplementation(() => {
+      throw new Error('rename failed')
+    })
+    expect(() => saveConfig({ apiKey: 'tok' })).toThrow(/rename failed/)
+    expect(mockedUnlinkSync).toHaveBeenCalledTimes(1)
+    const [tmpPath] = mockedUnlinkSync.mock.calls[0]
+    expect(String(tmpPath)).toMatch(/config\.json\.\d+\.tmp$/)
+  })
+
+  it('merges new values with the existing file', () => {
+    mockedReadFileSync.mockReturnValue(
+      JSON.stringify({ apiUrl: 'https://existing.example.com' }),
+    )
+    saveConfig({ apiKey: 'new-key' })
+    const [, contents] = mockedWriteFileSync.mock.calls[0]
+    expect(JSON.parse(String(contents))).toEqual({
+      apiUrl: 'https://existing.example.com',
+      apiKey: 'new-key',
     })
   })
 })

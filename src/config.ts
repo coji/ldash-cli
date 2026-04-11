@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -115,12 +121,39 @@ export function getConfig(): {
 
 /**
  * Write values to the config file on disk. Never touches environment variables.
+ *
+ * The file holds a Personal Access Token after `ldash setup`, so it MUST be
+ * created with restrictive permissions:
+ *  - parent directory `~/.config/ldash/` → 0o700 (only the owner can list it)
+ *  - the file itself → 0o600 (only the owner can read or write it)
+ *
+ * On a shared host with the default umask (022), the historical write would
+ * have produced a world-readable token file. Even though most ldash users are
+ * on single-user machines, the recommended onboarding now writes a 30-day PAT
+ * to this file automatically, so we treat the write as security-sensitive.
+ *
+ * The write also goes through a same-directory temp file + rename so a process
+ * killed mid-write doesn't truncate the existing config — the temp file is
+ * either fully written and atomically renamed into place, or it gets cleaned
+ * up and the previous file is left intact.
  */
 export function saveConfig(values: Partial<ConfigFile>): void {
   const existing = loadConfigFile()
   const merged = { ...existing, ...values }
-  mkdirSync(CONFIG_DIR, { recursive: true })
-  writeFileSync(CONFIG_PATH, `${JSON.stringify(merged, null, 2)}\n`)
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 })
+  const contents = `${JSON.stringify(merged, null, 2)}\n`
+  const tmpPath = `${CONFIG_PATH}.${process.pid}.tmp`
+  writeFileSync(tmpPath, contents, { mode: 0o600 })
+  try {
+    renameSync(tmpPath, CONFIG_PATH)
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath)
+    } catch {
+      // best-effort cleanup; surface the original rename error
+    }
+    throw err
+  }
 }
 
 export function getConfigPath(): string {
