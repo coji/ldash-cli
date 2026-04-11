@@ -1,6 +1,6 @@
 import * as api from '../api.js'
-import { CliError, missingArg } from '../errors.js'
-import { parseFlags } from '../output.js'
+import { parseArgs } from '../args.js'
+import { CliError } from '../errors.js'
 import type { CommandGroup } from '../types.js'
 
 function parseJson<T>(value: string | undefined, name: string): T {
@@ -44,17 +44,27 @@ export const queryGroup: CommandGroup = {
         'ldash query total <explore> ... for aggregated totals',
       ],
       run: (args) => {
-        const exploreId = args[0]
-        if (!exploreId || exploreId.startsWith('--'))
-          throw missingArg('exploreId', 'query run')
-        const opts = parseFlags(args.slice(1))
+        const parsed = parseArgs(args, {
+          positionalMin: 1,
+          positionalMax: 1,
+          positionals: ['exploreId'],
+          string: ['dimensions', 'metrics', 'filters', 'sorts'],
+          int: { limit: { min: 1 } },
+        })
+        const exploreId = parsed.positional[0]
         const { client, projectUuid } = api.createClient()
         return api.runQuery(client, projectUuid, exploreId, {
-          dimensions: parseJson(opts.dimensions, 'dimensions'),
-          metrics: parseJson(opts.metrics, 'metrics'),
-          filters: opts.filters ? parseJson(opts.filters, 'filters') : {},
-          sorts: opts.sorts ? parseJson(opts.sorts, 'sorts') : [],
-          limit: opts.limit ? Number.parseInt(opts.limit, 10) : undefined,
+          dimensions: parseJson(parsed.string.dimensions, 'dimensions'),
+          metrics: parseJson(parsed.string.metrics, 'metrics'),
+          filters:
+            parsed.string.filters !== undefined
+              ? parseJson(parsed.string.filters, 'filters')
+              : {},
+          sorts:
+            parsed.string.sorts !== undefined
+              ? parseJson(parsed.string.sorts, 'sorts')
+              : [],
+          limit: parsed.int.limit,
         })
       },
     },
@@ -70,16 +80,15 @@ export const queryGroup: CommandGroup = {
         'ldash catalog metadata <table> for column details',
       ],
       run: (args) => {
-        const sql = args[0]
-        if (!sql || sql.startsWith('--')) throw missingArg('sql', 'query sql')
-        const opts = parseFlags(args.slice(1))
+        const parsed = parseArgs(args, {
+          positionalMin: 1,
+          positionalMax: 1,
+          positionals: ['sql'],
+          int: { limit: { min: 1 } },
+        })
+        const sql = parsed.positional[0]
         const { client, projectUuid } = api.createClient()
-        return api.runSqlQuery(
-          client,
-          projectUuid,
-          sql,
-          opts.limit ? Number.parseInt(opts.limit, 10) : undefined,
-        )
+        return api.runSqlQuery(client, projectUuid, sql, parsed.int.limit)
       },
     },
     total: {
@@ -91,16 +100,22 @@ export const queryGroup: CommandGroup = {
       ],
       nextSteps: ['ldash query run <explore> ... for full row-level results'],
       run: (args) => {
-        const exploreName = args[0]
-        if (!exploreName || exploreName.startsWith('--'))
-          throw missingArg('exploreName', 'query total')
-        const opts = parseFlags(args.slice(1))
+        const parsed = parseArgs(args, {
+          positionalMin: 1,
+          positionalMax: 1,
+          positionals: ['exploreName'],
+          string: ['dimensions', 'metrics', 'filters'],
+        })
+        const exploreName = parsed.positional[0]
         const { client, projectUuid } = api.createClient()
         return api.calculateTotal(client, projectUuid, {
           exploreName,
-          dimensions: parseJson(opts.dimensions, 'dimensions'),
-          metrics: parseJson(opts.metrics, 'metrics'),
-          filters: opts.filters ? parseJson(opts.filters, 'filters') : {},
+          dimensions: parseJson(parsed.string.dimensions, 'dimensions'),
+          metrics: parseJson(parsed.string.metrics, 'metrics'),
+          filters:
+            parsed.string.filters !== undefined
+              ? parseJson(parsed.string.filters, 'filters')
+              : {},
         })
       },
     },
@@ -113,20 +128,21 @@ export const queryGroup: CommandGroup = {
       ],
       nextSteps: ['ldash catalog metrics to discover available metrics'],
       run: (args) => {
-        const explore = args[0]
-        if (!explore || explore.startsWith('--'))
-          throw missingArg('explore', 'query metrics-explorer')
-        const metric = args[1]
-        if (!metric || metric.startsWith('--'))
-          throw missingArg('metric', 'query metrics-explorer')
-        const opts = parseFlags(args.slice(2))
+        const parsed = parseArgs(args, {
+          positionalMin: 2,
+          positionalMax: 2,
+          positionals: ['explore', 'metric'],
+          string: ['body'],
+        })
+        const explore = parsed.positional[0]
+        const metric = parsed.positional[1]
         const { client, projectUuid } = api.createClient()
         return api.runMetricsExplorerQuery(
           client,
           projectUuid,
           explore,
           metric,
-          parseJson(opts.body, 'body'),
+          parseJson(parsed.string.body, 'body'),
         )
       },
     },

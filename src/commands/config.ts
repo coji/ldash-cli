@@ -1,17 +1,36 @@
-import { getConfig, getConfigPath, saveConfig } from '../config.js'
-import { parseFlags } from '../output.js'
-import type { CommandGroup } from '../types.js'
+import { parseArgs } from '../args.js'
+import {
+  getConfigPath,
+  getResolvedConfig,
+  type ResolvedField,
+  saveConfig,
+} from '../config.js'
+import { maskSecret, renderable } from '../output.js'
+import type { CommandGroup, Flags } from '../types.js'
+
+function sourceLabel(field: ResolvedField<unknown>): string {
+  switch (field.source) {
+    case 'env':
+      return `from env: ${field.envVar}`
+    case 'file':
+      return 'from config file'
+    case 'default':
+      return 'default'
+    case 'unset':
+      return 'not set'
+  }
+}
 
 export const configGroup: CommandGroup = {
   description: 'Manage CLI configuration',
   workflow: [
     'ldash config set --api-key <token> --project-uuid <uuid>',
-    'ldash config show                     # show current config',
+    'ldash config show                     # show current config + source',
     'ldash config path                     # show config file path',
   ],
   commands: {
     set: {
-      description: 'Set configuration values',
+      description: 'Set configuration values (written to the config file)',
       usage:
         'ldash config set --api-key <token> [--api-url <url>] [--project-uuid <uuid>]',
       examples: [
@@ -23,11 +42,15 @@ export const configGroup: CommandGroup = {
         'ldash explore list to start using the CLI',
       ],
       run: (args) => {
-        const opts = parseFlags(args)
+        const parsed = parseArgs(args, {
+          positionalMax: 0,
+          string: ['api-key', 'api-url', 'project-uuid'],
+        })
         const values: Record<string, string> = {}
-        if (opts['api-key']) values.apiKey = opts['api-key']
-        if (opts['api-url']) values.apiUrl = opts['api-url']
-        if (opts['project-uuid']) values.projectUuid = opts['project-uuid']
+        if (parsed.string['api-key']) values.apiKey = parsed.string['api-key']
+        if (parsed.string['api-url']) values.apiUrl = parsed.string['api-url']
+        if (parsed.string['project-uuid'])
+          values.projectUuid = parsed.string['project-uuid']
         if (Object.keys(values).length === 0) {
           return Promise.resolve(
             'No values provided. Use --api-key, --api-url, or --project-uuid.',
@@ -41,18 +64,78 @@ export const configGroup: CommandGroup = {
     },
     show: {
       description:
-        'Show current configuration (resolved from env + config file)',
-      usage: 'ldash config show',
-      examples: ['ldash config show'],
-      nextSteps: ['ldash config set to update values'],
-      run: () => {
-        const config = getConfig()
-        return Promise.resolve({
-          apiKey: config.apiKey ? `***${config.apiKey.slice(-4)}` : '(not set)',
-          apiUrl: config.apiUrl,
-          projectUuid: config.projectUuid || '(not set)',
-          configFile: getConfigPath(),
-        })
+        'Show current configuration with source (env / config file / default)',
+      usage: 'ldash config show [--json]',
+      examples: ['ldash config show', 'ldash config show --json'],
+      nextSteps: [
+        'ldash config set to update saved values',
+        'unset LIGHTDASH_API_KEY (etc.) to fall back to the saved config or defaults',
+      ],
+      run: (_args, flags: Flags) => {
+        const r = getResolvedConfig()
+
+        // Structured (JSON) shape — used by --json and renders nicely in
+        // the default pretty-print path too.
+        const envOverrides: string[] = []
+        if (r.apiKey.source === 'env' && r.apiKey.envVar)
+          envOverrides.push(r.apiKey.envVar)
+        if (r.apiUrl.source === 'env' && r.apiUrl.envVar)
+          envOverrides.push(r.apiUrl.envVar)
+        if (r.projectUuid.source === 'env' && r.projectUuid.envVar)
+          envOverrides.push(r.projectUuid.envVar)
+
+        const structured = {
+          apiUrl: {
+            value: r.apiUrl.value,
+            source: r.apiUrl.source,
+            envVar: r.apiUrl.envVar,
+          },
+          apiKey: {
+            masked: maskSecret(r.apiKey.value),
+            source: r.apiKey.source,
+            envVar: r.apiKey.envVar,
+          },
+          projectUuid: {
+            value: r.projectUuid.value ?? null,
+            source: r.projectUuid.source,
+            envVar: r.projectUuid.envVar,
+          },
+          configFile: r.configFile,
+          warnings:
+            envOverrides.length > 0
+              ? [
+                  `${envOverrides.length} setting${envOverrides.length > 1 ? 's' : ''} currently resolved from environment variables: ${envOverrides.join(', ')}`,
+                ]
+              : [],
+        }
+
+        const labelWidth = 8
+        const valueWidth = Math.max(
+          r.apiUrl.value.length,
+          maskSecret(r.apiKey.value).length,
+          (r.projectUuid.value ?? '(not set)').length,
+        )
+        const pad = (label: string, value: string) =>
+          `  ${label.padEnd(labelWidth)} ${value.padEnd(valueWidth)}`
+
+        const warnMark = (s: ResolvedField<unknown>) =>
+          s.source === 'env' ? '  ⚠' : ''
+        const lines = [
+          `${pad('URL:', r.apiUrl.value)}  (${sourceLabel(r.apiUrl)})${warnMark(r.apiUrl)}`,
+          `${pad('API Key:', maskSecret(r.apiKey.value))}  (${sourceLabel(r.apiKey)})${warnMark(r.apiKey)}`,
+          `${pad('Project:', r.projectUuid.value ?? '(not set)')}  (${sourceLabel(r.projectUuid)})${warnMark(r.projectUuid)}`,
+          `  File:    ${r.configFile}`,
+        ]
+        if (envOverrides.length > 0) {
+          lines.push('')
+          lines.push(
+            `⚠  ${envOverrides.length} setting${envOverrides.length > 1 ? 's are' : ' is'} currently resolved from environment variables.`,
+          )
+          lines.push(
+            `   Unset to fall back to the saved config or defaults: ${envOverrides.join(', ')}`,
+          )
+        }
+        return Promise.resolve(renderable(structured, lines.join('\n'), flags))
       },
     },
     path: {

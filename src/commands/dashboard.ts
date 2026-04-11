@@ -1,5 +1,5 @@
 import * as api from '../api.js'
-import { missingArg } from '../errors.js'
+import { parseArgs } from '../args.js'
 import type { CommandGroup } from '../types.js'
 
 export const dashboardGroup: CommandGroup = {
@@ -35,11 +35,13 @@ export const dashboardGroup: CommandGroup = {
         'ldash chart results <chartUuid> for results only',
       ],
       run: (args) => {
-        const dashboardUuid = args[0]
-        if (!dashboardUuid || dashboardUuid.startsWith('--'))
-          throw missingArg('dashboardUuid', 'dashboard get')
+        const parsed = parseArgs(args, {
+          positionals: ['dashboardUuid'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client, projectUuid } = api.createClient()
-        return api.getDashboardDetail(client, projectUuid, dashboardUuid)
+        return api.getDashboardDetail(client, projectUuid, parsed.positional[0])
       },
     },
     code: {

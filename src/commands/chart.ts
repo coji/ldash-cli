@@ -1,5 +1,5 @@
 import * as api from '../api.js'
-import { missingArg } from '../errors.js'
+import { parseArgs } from '../args.js'
 import type { CommandGroup } from '../types.js'
 
 export const chartGroup: CommandGroup = {
@@ -26,11 +26,13 @@ export const chartGroup: CommandGroup = {
       examples: ['ldash chart get abc123-...'],
       nextSteps: ['ldash chart history <chartUuid> to see version history'],
       run: (args) => {
-        const chartUuid = args[0]
-        if (!chartUuid || chartUuid.startsWith('--'))
-          throw missingArg('chartUuid', 'chart get')
+        const parsed = parseArgs(args, {
+          positionals: ['chartUuid'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client } = api.createClient()
-        return api.getChartAndResults(client, chartUuid)
+        return api.getChartAndResults(client, parsed.positional[0])
       },
     },
     results: {
@@ -39,11 +41,13 @@ export const chartGroup: CommandGroup = {
       examples: ['ldash chart results abc123-...'],
       nextSteps: ['ldash chart get <chartUuid> for definition + results'],
       run: (args) => {
-        const chartUuid = args[0]
-        if (!chartUuid || chartUuid.startsWith('--'))
-          throw missingArg('chartUuid', 'chart results')
+        const parsed = parseArgs(args, {
+          positionals: ['chartUuid'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client } = api.createClient()
-        return api.getChartResults(client, chartUuid)
+        return api.getChartResults(client, parsed.positional[0])
       },
     },
     history: {
@@ -52,11 +56,13 @@ export const chartGroup: CommandGroup = {
       examples: ['ldash chart history abc123-...'],
       nextSteps: ['ldash chart version <chartUuid> <versionUuid>'],
       run: (args) => {
-        const chartUuid = args[0]
-        if (!chartUuid || chartUuid.startsWith('--'))
-          throw missingArg('chartUuid', 'chart history')
+        const parsed = parseArgs(args, {
+          positionals: ['chartUuid'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client } = api.createClient()
-        return api.getChartHistory(client, chartUuid)
+        return api.getChartHistory(client, parsed.positional[0])
       },
     },
     version: {
@@ -65,14 +71,17 @@ export const chartGroup: CommandGroup = {
       examples: ['ldash chart version abc123-... def456-...'],
       nextSteps: ['ldash chart history <chartUuid> to see all versions'],
       run: (args) => {
-        const chartUuid = args[0]
-        if (!chartUuid || chartUuid.startsWith('--'))
-          throw missingArg('chartUuid', 'chart version')
-        const versionUuid = args[1]
-        if (!versionUuid || versionUuid.startsWith('--'))
-          throw missingArg('versionUuid', 'chart version')
+        const parsed = parseArgs(args, {
+          positionals: ['chartUuid', 'versionUuid'],
+          positionalMin: 2,
+          positionalMax: 2,
+        })
         const { client } = api.createClient()
-        return api.getChartVersion(client, chartUuid, versionUuid)
+        return api.getChartVersion(
+          client,
+          parsed.positional[0],
+          parsed.positional[1],
+        )
       },
     },
     code: {

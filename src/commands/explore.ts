@@ -1,5 +1,5 @@
 import * as api from '../api.js'
-import { missingArg } from '../errors.js'
+import { parseArgs } from '../args.js'
 import type { CommandGroup } from '../types.js'
 
 export const exploreGroup: CommandGroup = {
@@ -35,11 +35,13 @@ export const exploreGroup: CommandGroup = {
         'ldash query run <exploreId> --dimensions \'["d"]\' --metrics \'["m"]\'',
       ],
       run: (args) => {
-        const exploreId = args[0]
-        if (!exploreId || exploreId.startsWith('--'))
-          throw missingArg('exploreId', 'explore get')
+        const parsed = parseArgs(args, {
+          positionals: ['exploreId'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client, projectUuid } = api.createClient()
-        return api.getExplore(client, projectUuid, exploreId)
+        return api.getExplore(client, projectUuid, parsed.positional[0])
       },
     },
   },

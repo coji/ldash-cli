@@ -1,5 +1,5 @@
 import createOpenApiFetchClient from 'openapi-fetch'
-import { getConfig, getConfigPath } from './config.js'
+import { getConfig, getConfigPath, getResolvedConfig } from './config.js'
 import { CliError } from './errors.js'
 import type { components, operations, paths } from './generated/api.js'
 
@@ -7,6 +7,45 @@ export type LightdashClient = ReturnType<typeof createOpenApiFetchClient<paths>>
 
 export function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `ApiKey ${apiKey}` }
+}
+
+/**
+ * fetch() wrapper that converts transport-level failures (DNS, TLS,
+ * connection refused, etc.) into CliError so they surface through the
+ * --json envelope like every other user-facing error. HTTP-level errors
+ * (!response.ok) are still the caller's responsibility to handle.
+ */
+export async function safeFetch(
+  url: string,
+  init: RequestInit,
+  context: { what: string; hint: string },
+): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (err) {
+    throw new CliError(
+      context.what,
+      `Could not reach ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      context.hint,
+    )
+  }
+}
+
+/**
+ * Typed client factory. With `apiKey`, bakes `Authorization: ApiKey <key>`
+ * into the default headers for every call. Without, returns an
+ * unauthenticated client — used by the OAuth sign-in flow where the
+ * Authorization header is supplied per-call (a short-lived OAuth access
+ * token for PAT creation, then the freshly minted PAT for /api/v1/user).
+ */
+export function createApiClient(
+  baseUrl: string,
+  apiKey?: string,
+): LightdashClient {
+  return createOpenApiFetchClient<paths>({
+    baseUrl,
+    ...(apiKey ? { headers: authHeaders(apiKey) } : {}),
+  })
 }
 
 export function createBaseClient(): {
@@ -19,13 +58,10 @@ export function createBaseClient(): {
     throw new CliError(
       'API key is not set',
       'Authentication is required to access the Lightdash API.',
-      `Set it via environment variable or run: ldash setup --api-key <token>\nConfig file: ${getConfigPath()}`,
+      `Sign in with:  ldash setup\nOr set env var: LIGHTDASH_API_KEY=<token>\nConfig file: ${getConfigPath()}`,
     )
   }
-  const client = createOpenApiFetchClient<paths>({
-    baseUrl: config.apiUrl,
-    headers: authHeaders(config.apiKey),
-  })
+  const client = createApiClient(config.apiUrl, config.apiKey)
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
 }
 
@@ -69,10 +105,30 @@ function throwOnError(error: unknown): never {
     )
   }
   if (name === 'AuthorizationError') {
+    const apiKeyField = getResolvedConfig().apiKey
+    let hint: string
+    if (apiKeyField.source === 'env' && apiKeyField.envVar) {
+      const env = apiKeyField.envVar
+      hint = [
+        `This key comes from environment variable ${env}.`,
+        `  - Update (POSIX):       export ${env}=<new-token>`,
+        `  - Update (PowerShell):  $env:${env} = "<new-token>"`,
+        `  - Or unset (POSIX):     unset ${env}`,
+        `  - Or unset (PowerShell): Remove-Item Env:${env}`,
+        '  - Or re-run sign in:    ldash setup',
+      ].join('\n      ')
+    } else if (apiKeyField.source === 'file') {
+      hint = [
+        `This key is stored in ${getConfigPath()}.`,
+        '  Re-authenticate with:  ldash setup',
+      ].join('\n      ')
+    } else {
+      hint = 'Sign in with:  ldash setup'
+    }
     throw new CliError(
       'Unauthorized',
       'Your API key is invalid or expired.',
-      'Check LIGHTDASH_API_KEY. Generate a new token in Lightdash settings.',
+      hint,
     )
   }
   if (name === 'ForbiddenError') {

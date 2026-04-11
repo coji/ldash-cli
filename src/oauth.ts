@@ -1,0 +1,465 @@
+import { execFile } from 'node:child_process'
+import * as http from 'node:http'
+import { URL } from 'node:url'
+import { promisify } from 'node:util'
+import * as client from 'openid-client'
+import { createApiClient } from './api.js'
+import { CliError } from './errors.js'
+
+const execFileAsync = promisify(execFile)
+
+const CLIENT_ID = 'lightdash-cli'
+const CALLBACK_PATH = '/callback'
+// The `lightdash-cli` OAuth client is seeded server-side with a
+// `http://localhost:*/callback` redirect_uri allowlist (see Lightdash
+// migration 20250717082932_oauth_server_tokens). A literal `127.0.0.1`
+// host fails that regex and bounces back with `error=server_error`.
+// We bind the local server and the redirect_uri to the same `localhost`
+// string so node's resolver and the browser's resolver pick the same
+// loopback address (v4 or v6) — mismatch is avoided without forcing a
+// specific IP family.
+const LOOPBACK_HOST = 'localhost'
+const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_TOKEN_TTL_HOURS = 24 * 30 // 30 days
+
+export interface OAuthLoginOptions {
+  url: string
+  oauthPort?: number
+  tokenTtlHours?: number
+  timeoutMs?: number
+  /** Called once the authorization URL is known, before opening the browser. */
+  onAuthUrlReady?: (authUrl: string) => void
+  /** Called once the local callback server is listening. */
+  onServerReady?: (port: number) => void
+}
+
+export interface OAuthLoginResult {
+  token: string
+  expiresAt: Date
+  user: {
+    userUuid: string
+    organizationUuid: string
+    email: string
+    firstName: string
+    lastName: string
+  }
+}
+
+/**
+ * Open a URL in the user's default browser. Silently swallows failures — the
+ * URL is always printed to stderr so the user can paste it manually as a
+ * fallback.
+ */
+export async function openBrowser(url: string): Promise<void> {
+  // Pass the URL as an argv element (never via a shell) so characters like
+  // " or $() in query params can't execute anything on the user's machine.
+  const { platform } = process
+  let cmd: string
+  let args: string[]
+  if (platform === 'darwin') {
+    cmd = 'open'
+    args = [url]
+  } else if (platform === 'win32') {
+    // `start` is a cmd.exe builtin; the empty "" is the window title.
+    cmd = 'cmd'
+    args = ['/c', 'start', '', url]
+  } else {
+    cmd = 'xdg-open'
+    args = [url]
+  }
+  try {
+    await execFileAsync(cmd, args)
+  } catch {
+    // Swallow: headless hosts and sandboxed environments don't have a
+    // default browser. The caller always prints the URL to stderr first,
+    // so the user can paste it manually and the OAuth flow still succeeds.
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function resultHtml(opts: {
+  title: string
+  icon: string
+  iconColor: string
+  heading: string
+  paragraphs: string[]
+}): string {
+  const body = opts.paragraphs
+    .map((p) => `    <p>${escapeHtml(p)}</p>`)
+    .join('\n')
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(opts.title)}</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #fafafa; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           color: #111827; display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; }
+    .card { background: white; border-radius: 12px; padding: 40px 48px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 10px 30px rgba(0,0,0,0.04);
+            max-width: 420px; text-align: center; }
+    .icon { font-size: 56px; line-height: 1; color: ${opts.iconColor}; }
+    h1 { font-size: 22px; margin: 16px 0 8px; font-weight: 600; }
+    p { color: #6b7280; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${opts.icon}</div>
+    <h1>${escapeHtml(opts.heading)}</h1>
+${body}
+  </div>
+</body>
+</html>`
+}
+
+function successHtml(): string {
+  return resultHtml({
+    title: 'ldash — Signed in',
+    icon: '✓',
+    iconColor: '#10b981',
+    heading: 'Signed in to ldash',
+    paragraphs: ['You can close this tab and return to your terminal.'],
+  })
+}
+
+function errorHtml(message: string): string {
+  return resultHtml({
+    title: 'ldash — Sign in failed',
+    icon: '✗',
+    iconColor: '#ef4444',
+    heading: 'Sign in failed',
+    paragraphs: [
+      message,
+      'You can close this tab and try again in your terminal.',
+    ],
+  })
+}
+
+async function generatePat(
+  apiUrl: string,
+  accessToken: string,
+  hoursToExpire: number,
+): Promise<{ token: string; expiresAt: Date }> {
+  const expiresAt = new Date(Date.now() + hoursToExpire * 60 * 60 * 1000)
+  const now = new Date()
+  const api = createApiClient(apiUrl)
+  const { data, error, response } = await api
+    .POST('/api/v1/user/me/personal-access-tokens', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: {
+        expiresAt: expiresAt.toISOString(),
+        description: `Generated by ldash on ${now.toISOString().slice(0, 10)}`,
+        autoGenerated: true,
+      },
+    })
+    .catch((err: unknown) => {
+      throw new CliError(
+        'Failed to create access token',
+        `Could not reach ${new URL('/api/v1/user/me/personal-access-tokens', apiUrl).href}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        'Check your network connection, or fall back to pasting a token manually: ldash setup --pat',
+      )
+    })
+  if (error || !data) {
+    const body = await response.text().catch(() => '')
+    throw new CliError(
+      'Failed to create access token',
+      `Lightdash returned HTTP ${response.status} when creating a personal access token.${body ? `\n       ${body.slice(0, 200)}` : ''}`,
+      'Try again, or fall back to pasting a token manually: ldash setup --pat',
+    )
+  }
+  return { token: data.results.token, expiresAt }
+}
+
+async function fetchUser(
+  apiUrl: string,
+  pat: string,
+): Promise<OAuthLoginResult['user']> {
+  const api = createApiClient(apiUrl)
+  const { data, error, response } = await api
+    .GET('/api/v1/user', {
+      headers: { Authorization: `ApiKey ${pat}` },
+    })
+    .catch((err: unknown) => {
+      throw new CliError(
+        'Failed to fetch user info',
+        `Could not reach ${new URL('/api/v1/user', apiUrl).href}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        'Check your network connection and try "ldash setup" again.',
+      )
+    })
+  if (error || !data) {
+    throw new CliError(
+      'Failed to fetch user info',
+      `Lightdash returned HTTP ${response.status} for /api/v1/user after sign-in.`,
+      'Try "ldash setup" again. If the problem persists, report an issue.',
+    )
+  }
+  const { userUuid, firstName, lastName, organizationUuid, email } =
+    data.results
+  if (!organizationUuid || !email) {
+    throw new CliError(
+      'Failed to fetch user info',
+      'Lightdash did not return organizationUuid or email for the signed-in user.',
+      'Try "ldash setup" again. If the problem persists, report an issue.',
+    )
+  }
+  return { userUuid, firstName, lastName, organizationUuid, email }
+}
+
+export function resolvePort(requested: number | undefined): number {
+  if (requested !== undefined) return requested
+  const envPortStr = process.env.LIGHTDASH_OAUTH_PORT
+  if (!envPortStr) return 0
+  // Strict digits-only check — Number.parseInt('8080abc', 10) === 8080
+  // would otherwise silently accept malformed values.
+  const looksNumeric = /^\d+$/.test(envPortStr)
+  const envPort = looksNumeric ? Number(envPortStr) : Number.NaN
+  if (!looksNumeric || envPort < 1 || envPort > 65535) {
+    throw new CliError(
+      'Invalid LIGHTDASH_OAUTH_PORT',
+      `LIGHTDASH_OAUTH_PORT must be a whole number between 1 and 65535, got "${envPortStr}".`,
+      'Unset the env var or pass --oauth-port <n> explicitly.',
+    )
+  }
+  return envPort
+}
+
+/**
+ * Run the OAuth2 Authorization Code + PKCE flow against a Lightdash instance.
+ *
+ * Steps:
+ *   1. Start a local HTTP server on localhost (random port by default)
+ *   2. Build the authorization URL and open the user's browser
+ *   3. Wait for the callback (with timeout)
+ *   4. Exchange the code for an access token
+ *   5. Use the access token to create a long-lived Personal Access Token
+ *   6. Fetch user info and return everything
+ *
+ * The access token from step 4 is short-lived; the returned PAT from step 5
+ * is what gets saved to disk for subsequent CLI calls.
+ */
+export async function loginWithOAuth(
+  options: OAuthLoginOptions,
+): Promise<OAuthLoginResult> {
+  const {
+    url,
+    tokenTtlHours = DEFAULT_TOKEN_TTL_HOURS,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    onAuthUrlReady,
+    onServerReady,
+  } = options
+
+  let port = resolvePort(options.oauthPort)
+
+  const serverMetadata: client.ServerMetadata = {
+    issuer: new URL('/api/v1/oauth', url).href,
+    authorization_endpoint: new URL('/api/v1/oauth/authorize', url).href,
+    token_endpoint: new URL('/api/v1/oauth/token', url).href,
+  }
+  const config = new client.Configuration(
+    serverMetadata,
+    CLIENT_ID,
+    undefined,
+    client.None(),
+  )
+  // Self-hosted dev instances may use plain http://. The token endpoint call
+  // still uses whatever protocol the user configured.
+  if (url.startsWith('http://')) {
+    client.allowInsecureRequests(config)
+  }
+
+  const codeVerifier = client.randomPKCECodeVerifier()
+  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier)
+  const state = client.randomState()
+
+  let resolveCallback: (url: URL) => void = () => {}
+  let rejectCallback: (err: Error) => void = () => {}
+  const callbackPromise = new Promise<URL>((resolve, reject) => {
+    resolveCallback = resolve
+    rejectCallback = reject
+  })
+
+  // `Connection: close` tells the browser not to reuse this socket, which
+  // (together with `server.closeAllConnections()` below) lets the local
+  // callback server shut down as soon as the response has been written.
+  const writeHtml = (
+    res: http.ServerResponse,
+    status: number,
+    html: string,
+  ) => {
+    res.writeHead(status, {
+      'Content-Type': 'text/html; charset=utf-8',
+      Connection: 'close',
+    })
+    res.end(html)
+  }
+
+  const server = http.createServer((req, res) => {
+    if (!req.url?.startsWith(CALLBACK_PATH)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain', Connection: 'close' })
+      res.end('Not Found')
+      return
+    }
+    const callbackUrl = new URL(req.url, `http://${LOOPBACK_HOST}:${port}`)
+    const errorParam = callbackUrl.searchParams.get('error')
+    if (errorParam) {
+      const desc =
+        callbackUrl.searchParams.get('error_description') ?? errorParam
+      writeHtml(res, 400, errorHtml(desc))
+      rejectCallback(
+        new CliError(
+          'OAuth authorization denied',
+          `The Lightdash authorization server returned: ${desc}`,
+          `Try again, or paste a token manually: ldash setup ${url} --pat`,
+        ),
+      )
+      return
+    }
+    const returnedState = callbackUrl.searchParams.get('state')
+    if (!callbackUrl.searchParams.get('code') || !returnedState) {
+      writeHtml(res, 400, errorHtml('Missing authorization code or state.'))
+      rejectCallback(
+        new CliError(
+          'OAuth callback missing code or state',
+          'The redirect from Lightdash did not include the expected parameters.',
+          `Try again. If it keeps failing, use: ldash setup ${url} --pat`,
+        ),
+      )
+      return
+    }
+    // Verify state here too — openid-client would catch a mismatch at the
+    // token exchange step, but by then the browser has already been shown
+    // a success page. Rejecting upfront keeps the browser UX truthful and
+    // prevents replay of stale authorization links.
+    if (returnedState !== state) {
+      writeHtml(
+        res,
+        400,
+        errorHtml(
+          'This sign-in link has expired or was not initiated by this CLI session.',
+        ),
+      )
+      rejectCallback(
+        new CliError(
+          'OAuth state mismatch',
+          'The redirect did not match the original login attempt.',
+          `Run "ldash setup" again from the start. If it keeps failing, use: ldash setup ${url} --pat`,
+        ),
+      )
+      return
+    }
+    writeHtml(res, 200, successHtml())
+    resolveCallback(callbackUrl)
+  })
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, LOOPBACK_HOST, () => {
+        const address = server.address()
+        if (address && typeof address === 'object') {
+          port = address.port
+        }
+        onServerReady?.(port)
+        resolve()
+      })
+    })
+  } catch (err) {
+    throw new CliError(
+      'Could not start the local OAuth callback server',
+      err instanceof Error ? err.message : String(err),
+      `Pick a different port with --oauth-port <n>, or use: ldash setup ${url} --pat`,
+    )
+  }
+
+  const redirectUri = `http://${LOOPBACK_HOST}:${port}/callback`
+
+  let timeoutHandle: NodeJS.Timeout | undefined
+
+  try {
+    const authUrl = client.buildAuthorizationUrl(config, {
+      redirect_uri: redirectUri,
+      scope: 'read write',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state,
+    })
+
+    onAuthUrlReady?.(authUrl.href)
+    await openBrowser(authUrl.href)
+
+    const timeoutPromise = new Promise<URL>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(
+          new CliError(
+            `Sign-in timed out after ${Math.round(timeoutMs / 1000)} seconds`,
+            'No response was received from the browser.',
+            [
+              'Did your browser actually open the sign-in page?',
+              'Behind a firewall? Try:  ldash setup --oauth-port 8976',
+              `Can't use a browser? Try:  ldash setup ${url} --pat`,
+            ].join('\n      '),
+          ),
+        )
+      }, timeoutMs)
+    })
+
+    const currentUrl = await Promise.race([callbackPromise, timeoutPromise])
+
+    let tokens: client.TokenEndpointResponse
+    try {
+      tokens = await client.authorizationCodeGrant(config, currentUrl, {
+        pkceCodeVerifier: codeVerifier,
+        expectedState: state,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new CliError(
+        'OAuth token exchange failed',
+        msg,
+        `Your Lightdash instance may not support CLI OAuth login yet.\n      Try:  ldash setup ${url} --pat`,
+      )
+    }
+
+    const accessToken = tokens.access_token
+    if (!accessToken) {
+      throw new CliError(
+        'OAuth token exchange returned no access token',
+        'Lightdash responded successfully but did not include an access_token.',
+        `Try:  ldash setup ${url} --pat`,
+      )
+    }
+
+    const { token: pat, expiresAt } = await generatePat(
+      url,
+      accessToken,
+      tokenTtlHours,
+    )
+    const user = await fetchUser(url, pat)
+
+    return { token: pat, expiresAt, user }
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+    // `server.close()` alone only stops *new* connections — any keep-alive
+    // socket held by the browser still pins the event loop. closeAllConnections
+    // (Node 18.2+) drops those so the CLI can exit right after the success
+    // page has been handed back to the browser.
+    server.closeAllConnections()
+    server.close()
+  }
+}

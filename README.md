@@ -17,22 +17,54 @@ npm install -g @coji/ldash-cli
 
 ## Setup
 
-Interactive wizard:
+**Sign in with your browser** — no token copy-paste needed:
 
 ```bash
 ldash setup
 ```
 
-Step-by-step (agent-friendly):
+This opens Lightdash in your browser. Click "Authorize" and you're done — ldash picks up the session, fetches your projects, and lets you choose one. No API keys to manage manually.
+
+Against a specific instance:
 
 ```bash
-ldash setup https://your-instance.com     # save URL + open browser for PAT
-ldash setup --api-key <token>             # save API key + list projects
-ldash setup --project-uuid <uuid>         # save project UUID, done
+ldash setup https://your-instance.com
 ```
 
-Config is stored in `~/.config/ldash/config.json`.
-Environment variables (`LIGHTDASH_API_KEY`, `LIGHTDASH_PROJECT_UUID`, `LIGHTDASH_API_URL`) override the config file when set.
+### Alternative: paste a Personal Access Token
+
+If OAuth isn't available (old self-hosted Lightdash, restrictive network):
+
+```bash
+ldash setup --pat                         # opens token page, prompts for paste
+```
+
+### For coding agents & CI (non-interactive)
+
+Agents can't click through a browser, so use env vars or flags:
+
+```bash
+# Option A — environment variables
+export LIGHTDASH_API_URL=https://app.lightdash.cloud
+export LIGHTDASH_API_KEY=<token>
+export LIGHTDASH_PROJECT_UUID=<uuid>
+ldash explore list                        # works without any setup command
+
+# Option B — one-shot
+ldash setup https://app.lightdash.cloud \
+  --api-key <token> \
+  --project-uuid <uuid>
+```
+
+Create a Personal Access Token at `<your-instance>/generalSettings/personalAccessTokens`.
+
+### Configuration precedence
+
+1. Environment variables (`LIGHTDASH_API_KEY`, `LIGHTDASH_API_URL`, `LIGHTDASH_PROJECT_UUID`)
+2. Config file at `~/.config/ldash/config.json` (written by `ldash setup`)
+3. Built-in defaults
+
+Run `ldash config show` to see the effective config and where each value came from.
 
 ## Quick Start
 
@@ -117,7 +149,7 @@ The official [`@lightdash/cli`](https://www.npmjs.com/package/@lightdash/cli) fo
 | **Run metric queries**       | No                       | Yes                      |
 | **Browse charts/dashboards** | No                       | Yes                      |
 | **SQL execution**            | DWH direct (dbt profile) | API-based                |
-| **Auth**                     | Login (email/token)      | Config file / env vars   |
+| **Auth**                     | Login (email/token)      | Browser OAuth / env vars |
 | **Target users**             | dbt developers           | Coding agents & analysts |
 
 They are complementary.

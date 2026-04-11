@@ -1,5 +1,5 @@
 import * as api from '../api.js'
-import { missingArg } from '../errors.js'
+import { parseArgs } from '../args.js'
 import type { CommandGroup } from '../types.js'
 
 export const spaceGroup: CommandGroup = {
@@ -29,11 +29,13 @@ export const spaceGroup: CommandGroup = {
         'ldash chart get <uuid> for chart data',
       ],
       run: (args) => {
-        const spaceUuid = args[0]
-        if (!spaceUuid || spaceUuid.startsWith('--'))
-          throw missingArg('spaceUuid', 'space get')
+        const parsed = parseArgs(args, {
+          positionals: ['spaceUuid'],
+          positionalMin: 1,
+          positionalMax: 1,
+        })
         const { client, projectUuid } = api.createClient()
-        return api.getSpaceDetail(client, projectUuid, spaceUuid)
+        return api.getSpaceDetail(client, projectUuid, parsed.positional[0])
       },
     },
   },
