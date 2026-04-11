@@ -10,6 +10,9 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=18.2"
+  },
   "scripts": {
     "generate": "mkdir -p src/generated && curl -f -o src/generated/swagger.json https://raw.githubusercontent.com/lightdash/lightdash/main/packages/backend/src/generated/swagger.json && openapi-typescript src/generated/swagger.json -o src/generated/api.ts && node scripts/patch-generated.js",
     "prebuild": "node scripts/ensure-generated.js",

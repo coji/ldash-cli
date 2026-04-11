@@ -187,12 +187,21 @@ async function main(args: string[], flags: Flags): Promise<void> {
   output(result, flags)
 }
 
-main(globalArgs, globalFlags).catch((err: unknown) => {
-  const cli = err instanceof CliError ? err : wrapApiError(err)
-  if (globalFlags.json) {
-    console.error(JSON.stringify(formatErrorJson(cli)))
-  } else {
-    console.error(formatError(cli))
-  }
-  process.exit(1)
-})
+main(globalArgs, globalFlags)
+  .then(() => {
+    // Undici's global fetch pool holds keep-alive sockets open until the
+    // remote server drops them (~60s for Lightdash), which keeps node's
+    // event loop alive long after the CLI has printed its output. A one-
+    // shot CLI has nothing else to do at this point, so exit explicitly
+    // instead of waiting for those sockets to time out.
+    process.exit(0)
+  })
+  .catch((err: unknown) => {
+    const cli = err instanceof CliError ? err : wrapApiError(err)
+    if (globalFlags.json) {
+      console.error(JSON.stringify(formatErrorJson(cli)))
+    } else {
+      console.error(formatError(cli))
+    }
+    process.exit(1)
+  })

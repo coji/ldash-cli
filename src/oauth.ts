@@ -10,10 +10,15 @@ const execFileAsync = promisify(execFile)
 
 const CLIENT_ID = 'lightdash-cli'
 const CALLBACK_PATH = '/callback'
-// Bind the local callback on an explicit loopback IP so the authorization
-// server's redirect always reaches the right stack. Using "localhost"
-// would be at the mercy of /etc/hosts / IPv6 resolution.
-const LOOPBACK_HOST = '127.0.0.1'
+// The `lightdash-cli` OAuth client is seeded server-side with a
+// `http://localhost:*/callback` redirect_uri allowlist (see Lightdash
+// migration 20250717082932_oauth_server_tokens). A literal `127.0.0.1`
+// host fails that regex and bounces back with `error=server_error`.
+// We bind the local server and the redirect_uri to the same `localhost`
+// string so node's resolver and the browser's resolver pick the same
+// loopback address (v4 or v6) — mismatch is avoided without forcing a
+// specific IP family.
+const LOOPBACK_HOST = 'localhost'
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_TOKEN_TTL_HOURS = 24 * 30 // 30 days
 
@@ -238,7 +243,7 @@ export function resolvePort(requested: number | undefined): number {
  * Run the OAuth2 Authorization Code + PKCE flow against a Lightdash instance.
  *
  * Steps:
- *   1. Start a local HTTP server on 127.0.0.1 (random port by default)
+ *   1. Start a local HTTP server on localhost (random port by default)
  *   2. Build the authorization URL and open the user's browser
  *   3. Wait for the callback (with timeout)
  *   4. Exchange the code for an access token
@@ -289,9 +294,24 @@ export async function loginWithOAuth(
     rejectCallback = reject
   })
 
+  // `Connection: close` tells the browser not to reuse this socket, which
+  // (together with `server.closeAllConnections()` below) lets the local
+  // callback server shut down as soon as the response has been written.
+  const writeHtml = (
+    res: http.ServerResponse,
+    status: number,
+    html: string,
+  ) => {
+    res.writeHead(status, {
+      'Content-Type': 'text/html; charset=utf-8',
+      Connection: 'close',
+    })
+    res.end(html)
+  }
+
   const server = http.createServer((req, res) => {
     if (!req.url?.startsWith(CALLBACK_PATH)) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' })
+      res.writeHead(404, { 'Content-Type': 'text/plain', Connection: 'close' })
       res.end('Not Found')
       return
     }
@@ -300,8 +320,7 @@ export async function loginWithOAuth(
     if (errorParam) {
       const desc =
         callbackUrl.searchParams.get('error_description') ?? errorParam
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(errorHtml(desc))
+      writeHtml(res, 400, errorHtml(desc))
       rejectCallback(
         new CliError(
           'OAuth authorization denied',
@@ -313,8 +332,7 @@ export async function loginWithOAuth(
     }
     const returnedState = callbackUrl.searchParams.get('state')
     if (!callbackUrl.searchParams.get('code') || !returnedState) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(errorHtml('Missing authorization code or state.'))
+      writeHtml(res, 400, errorHtml('Missing authorization code or state.'))
       rejectCallback(
         new CliError(
           'OAuth callback missing code or state',
@@ -329,8 +347,9 @@ export async function loginWithOAuth(
     // a success page. Rejecting upfront keeps the browser UX truthful and
     // prevents replay of stale authorization links.
     if (returnedState !== state) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(
+      writeHtml(
+        res,
+        400,
         errorHtml(
           'This sign-in link has expired or was not initiated by this CLI session.',
         ),
@@ -344,8 +363,7 @@ export async function loginWithOAuth(
       )
       return
     }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(successHtml())
+    writeHtml(res, 200, successHtml())
     resolveCallback(callbackUrl)
   })
 
@@ -437,6 +455,11 @@ export async function loginWithOAuth(
     return { token: pat, expiresAt, user }
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle)
+    // `server.close()` alone only stops *new* connections — any keep-alive
+    // socket held by the browser still pins the event loop. closeAllConnections
+    // (Node 18.2+) drops those so the CLI can exit right after the success
+    // page has been handed back to the browser.
+    server.closeAllConnections()
     server.close()
   }
 }
