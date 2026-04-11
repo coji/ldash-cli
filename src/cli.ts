@@ -187,21 +187,38 @@ async function main(args: string[], flags: Flags): Promise<void> {
   output(result, flags)
 }
 
+/**
+ * Drain stdout and stderr before exiting. console.log is synchronous on a
+ * TTY but asynchronous over a pipe, so a bare `process.exit()` immediately
+ * after writing output can truncate JSON or help text when consumers like
+ * `jq` are downstream. Writing an empty chunk with a callback resolves once
+ * everything queued ahead of it has been flushed to the sink.
+ */
+function drainStandardStreams(): Promise<void> {
+  return Promise.all([
+    new Promise<void>((resolve) => process.stdout.write('', () => resolve())),
+    new Promise<void>((resolve) => process.stderr.write('', () => resolve())),
+  ]).then(() => undefined)
+}
+
 main(globalArgs, globalFlags)
-  .then(() => {
+  .then(async () => {
     // Undici's global fetch pool holds keep-alive sockets open until the
     // remote server drops them (~60s for Lightdash), which keeps node's
     // event loop alive long after the CLI has printed its output. A one-
     // shot CLI has nothing else to do at this point, so exit explicitly
-    // instead of waiting for those sockets to time out.
+    // instead of waiting for those sockets to time out — but only after
+    // the streams have actually flushed.
+    await drainStandardStreams()
     process.exit(0)
   })
-  .catch((err: unknown) => {
+  .catch(async (err: unknown) => {
     const cli = err instanceof CliError ? err : wrapApiError(err)
     if (globalFlags.json) {
       console.error(JSON.stringify(formatErrorJson(cli)))
     } else {
       console.error(formatError(cli))
     }
+    await drainStandardStreams()
     process.exit(1)
   })
