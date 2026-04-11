@@ -111,7 +111,7 @@ export function normalizeUrl(input: string): string {
     throw new CliError(
       `Invalid URL "${input}"`,
       'Could not parse the provided URL.',
-      'Example: ldash setup https://app.lightdash.cloud',
+      'Expected something like: https://app.lightdash.cloud',
     )
   }
 }
@@ -478,25 +478,33 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   }
 }
 
+export type SetupFlow = 'pat' | 'scripted' | 'oauth'
+
+/**
+ * Pick which setup flow to run for a given set of options.
+ *
+ * `--non-interactive` on its own is a prompt-suppressor (honored by the
+ * OAuth and PAT flows via selectAndSaveProject), not a flow selector — we
+ * only route to the scripted writer when the user actually supplied
+ * something for it to write.
+ */
+export function selectSetupFlow(opts: SetupOptions): SetupFlow {
+  if (opts.pat) return 'pat'
+  if (opts.apiKey !== undefined || opts.projectUuid !== undefined)
+    return 'scripted'
+  return 'oauth'
+}
+
 async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const opts = parseSetupArgs(args)
-
-  // `--non-interactive` on its own is a prompt-suppressor, not a flow
-  // selector — the OAuth and PAT flows both respect it via selectAndSaveProject.
-  // We only short-circuit to the scripted writer when the user actually
-  // supplied something for it to write.
-  const scriptedInputProvided =
-    opts.apiKey !== undefined || opts.projectUuid !== undefined
-
-  if (opts.pat) {
-    return renderResult(await runPatFlow(opts), flags)
+  switch (selectSetupFlow(opts)) {
+    case 'pat':
+      return renderResult(await runPatFlow(opts), flags)
+    case 'scripted':
+      return renderResult(await runNonInteractive(opts), flags)
+    case 'oauth':
+      return renderResult(await runOAuthFlow(opts), flags)
   }
-
-  if (scriptedInputProvided) {
-    return renderResult(await runNonInteractive(opts), flags)
-  }
-
-  return renderResult(await runOAuthFlow(opts), flags)
 }
 
 export const setupGroup: CommandGroup = {

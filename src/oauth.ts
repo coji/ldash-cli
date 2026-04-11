@@ -64,7 +64,9 @@ export async function openBrowser(url: string): Promise<void> {
   try {
     await execFileAsync(cmd, args)
   } catch {
-    // Intentional: the caller prints the URL before calling us.
+    // Swallow: headless hosts and sandboxed environments don't have a
+    // default browser. The caller always prints the URL to stderr first,
+    // so the user can paste it manually and the OAuth flow still succeeds.
   }
 }
 

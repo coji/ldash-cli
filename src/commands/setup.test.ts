@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { CliError } from '../errors.js'
-import { normalizeUrl, parseSetupArgs } from './setup.js'
+import {
+  normalizeUrl,
+  parseSetupArgs,
+  selectSetupFlow,
+  type SetupOptions,
+} from './setup.js'
+
+const baseOpts = (): SetupOptions => ({
+  pat: false,
+  nonInteractive: false,
+})
 
 describe('normalizeUrl', () => {
   it('turns a single word into a lightdash.cloud subdomain with https', () => {
@@ -102,5 +112,41 @@ describe('parseSetupArgs', () => {
   it('rejects an invalid token-ttl', () => {
     expect(() => parseSetupArgs(['--token-ttl', '0'])).toThrow(CliError)
     expect(() => parseSetupArgs(['--token-ttl', 'abc'])).toThrow(CliError)
+  })
+})
+
+describe('selectSetupFlow', () => {
+  it('defaults to oauth with no flags', () => {
+    expect(selectSetupFlow(baseOpts())).toBe('oauth')
+  })
+
+  it('routes to oauth when only a URL is given', () => {
+    expect(selectSetupFlow({ ...baseOpts(), url: 'https://x' })).toBe('oauth')
+  })
+
+  it('does NOT route to scripted when only --non-interactive is set', () => {
+    // Regression test for the CodeRabbit-caught dispatcher bug where
+    // `ldash setup --non-interactive` used to hit runNonInteractive and
+    // die with "Nothing to save".
+    expect(selectSetupFlow({ ...baseOpts(), nonInteractive: true })).toBe(
+      'oauth',
+    )
+  })
+
+  it('routes to scripted when --api-key is given', () => {
+    expect(selectSetupFlow({ ...baseOpts(), apiKey: 'tok' })).toBe('scripted')
+  })
+
+  it('routes to scripted when --project-uuid is given', () => {
+    expect(selectSetupFlow({ ...baseOpts(), projectUuid: 'uuid' })).toBe(
+      'scripted',
+    )
+  })
+
+  it('routes to pat when --pat is given, regardless of other flags', () => {
+    expect(selectSetupFlow({ ...baseOpts(), pat: true })).toBe('pat')
+    expect(selectSetupFlow({ ...baseOpts(), pat: true, apiKey: 'tok' })).toBe(
+      'pat',
+    )
   })
 })
