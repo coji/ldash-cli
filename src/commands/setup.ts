@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { URL } from 'node:url'
 import * as api from '../api.js'
@@ -11,10 +10,8 @@ import {
   saveConfig,
 } from '../config.js'
 import { CliError } from '../errors.js'
-import { loginWithOAuth } from '../oauth.js'
+import { loginWithOAuth, openBrowser } from '../oauth.js'
 import type { CommandGroup, Flags } from '../types.js'
-
-// --- Flag parsing ---
 
 export interface SetupOptions {
   url?: string
@@ -34,6 +31,8 @@ const VALUE_FLAGS = new Set([
   '--oauth-port',
   '--token-ttl',
 ])
+
+const DEFAULT_URL = 'https://app.lightdash.cloud'
 
 export function parseSetupArgs(args: string[]): SetupOptions {
   const opts: SetupOptions = {
@@ -99,8 +98,6 @@ export function parseSetupArgs(args: string[]): SetupOptions {
   return opts
 }
 
-// --- Helpers ---
-
 export function normalizeUrl(input: string): string {
   let url = input.trim()
   if (!url.includes('/') && !url.includes('.') && !url.includes(':')) {
@@ -146,30 +143,39 @@ function requireInteractive(action: string): void {
   )
 }
 
-function openManageTokensPage(url: string): void {
-  const pageUrl = `${url}/generalSettings/personalAccessTokens`
-  const cmd =
-    process.platform === 'darwin'
-      ? 'open'
-      : process.platform === 'win32'
-        ? 'start'
-        : 'xdg-open'
+async function promptForUrl(banner?: string): Promise<string> {
+  if (banner) console.error(banner)
+  const defaultUrl = getConfig().apiUrl || DEFAULT_URL
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    execFile(cmd, [pageUrl])
-  } catch {
-    // ignore; URL is printed to stderr separately
+    const answer = await rl.question(`Lightdash URL [${defaultUrl}]: `)
+    return normalizeUrl(answer.trim() || defaultUrl)
+  } finally {
+    rl.close()
   }
 }
 
-async function fetchProjects(): Promise<
+function resolveUrl(opts: SetupOptions, banner?: string): Promise<string> {
+  if (opts.url) return Promise.resolve(normalizeUrl(opts.url))
+  return promptForUrl(banner)
+}
+
+async function fetchProjectsWithKey(
+  apiUrl: string,
+  apiKey: string,
+): Promise<{ projectUuid: string; name: string }[]> {
+  const client = api.createClientWithKey(apiUrl, apiKey)
+  const projects = await api.listProjects(client)
+  return projects as { projectUuid: string; name: string }[]
+}
+
+async function fetchProjectsFromSavedConfig(): Promise<
   { projectUuid: string; name: string }[]
 > {
   const { client } = api.createBaseClient()
   const projects = await api.listProjects(client)
   return projects as { projectUuid: string; name: string }[]
 }
-
-// --- Result shape for --json ---
 
 interface SetupResult {
   ok: true
@@ -192,8 +198,6 @@ function renderResult(result: SetupResult, flags: Flags): unknown {
   if (flags.json) return result
   return result.message
 }
-
-// --- Interactive project selection ---
 
 async function chooseProjectInteractive(
   projects: { projectUuid: string; name: string }[],
@@ -227,8 +231,6 @@ async function chooseProjectInteractive(
   }
 }
 
-// --- Flow: project selection (post-auth) ---
-
 async function selectAndSaveProject(
   opts: SetupOptions,
 ): Promise<{ projectUuid: string; name?: string } | undefined> {
@@ -239,7 +241,7 @@ async function selectAndSaveProject(
 
   let projects: { projectUuid: string; name: string }[]
   try {
-    projects = await fetchProjects()
+    projects = await fetchProjectsFromSavedConfig()
   } catch (err) {
     throw new CliError(
       'Could not fetch project list',
@@ -256,7 +258,6 @@ async function selectAndSaveProject(
     return undefined
   }
 
-  // Non-interactive or --non-interactive: pick the first
   if (opts.nonInteractive || !isInteractive()) {
     const first = projects[0]
     saveConfig({ projectUuid: first.projectUuid })
@@ -275,34 +276,15 @@ async function selectAndSaveProject(
   return { projectUuid: chosen.projectUuid, name: chosen.name }
 }
 
-// --- Flow: OAuth login ---
-
 async function runOAuthFlow(opts: SetupOptions): Promise<SetupResult> {
   requireInteractive('Browser login')
 
-  // Resolve URL: flag > existing config > prompt
-  let apiUrl: string | undefined
-  if (opts.url) {
-    apiUrl = normalizeUrl(opts.url)
-  } else {
-    const existing = getConfig().apiUrl
-    const defaultUrl = existing || 'https://app.lightdash.cloud'
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    })
-    try {
-      console.error(
-        "\nWelcome to ldash! Let's get you connected to Lightdash.\n",
-      )
-      const answer = await rl.question(`Lightdash URL [${defaultUrl}]: `)
-      apiUrl = normalizeUrl(answer.trim() || defaultUrl)
-    } finally {
-      rl.close()
-    }
-  }
+  const apiUrl = await resolveUrl(
+    opts,
+    "\nWelcome to ldash! Let's get you connected to Lightdash.\n",
+  )
 
-  // Save URL early so subsequent commands have it even if login fails.
+  // Save URL before login so subsequent commands have it even if OAuth fails.
   saveConfig({ apiUrl })
 
   console.error('\nOpening your browser to sign in...')
@@ -373,28 +355,10 @@ async function runOAuthFlow(opts: SetupOptions): Promise<SetupResult> {
   }
 }
 
-// --- Flow: PAT paste (interactive, legacy) ---
-
 async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
   requireInteractive('Interactive PAT setup')
 
-  const existing = getConfig()
-  let apiUrl: string
-  if (opts.url) {
-    apiUrl = normalizeUrl(opts.url)
-  } else {
-    const defaultUrl = existing.apiUrl || 'https://app.lightdash.cloud'
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    })
-    try {
-      const answer = await rl.question(`Lightdash URL [${defaultUrl}]: `)
-      apiUrl = normalizeUrl(answer.trim() || defaultUrl)
-    } finally {
-      rl.close()
-    }
-  }
+  const apiUrl = await resolveUrl(opts)
   saveConfig({ apiUrl })
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -402,7 +366,7 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
     const patPageUrl = `${apiUrl}/generalSettings/personalAccessTokens`
     console.error('\nOpening your browser to create a Personal Access Token...')
     console.error(`  ${patPageUrl}\n`)
-    openManageTokensPage(apiUrl)
+    await openBrowser(patPageUrl)
 
     const token = (
       await rl.question('Paste your Personal Access Token: ')
@@ -434,8 +398,6 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
   }
 }
 
-// --- Flow: non-interactive (flags only) ---
-
 async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   const updates: {
     apiUrl?: string
@@ -460,23 +422,24 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
     )
   }
 
-  saveConfig(updates)
-
-  // If an API key was just saved, optionally verify and list projects.
+  // Optimistically verify the new key (and, if requested, pick a default
+  // project) against a throwaway client before writing anything to disk —
+  // so the common case is a single config file write.
   let verified = false
   if (updates.apiKey) {
+    const effectiveUrl = updates.apiUrl ?? getConfig().apiUrl
     try {
-      const projects = await fetchProjects()
+      const projects = await fetchProjectsWithKey(effectiveUrl, updates.apiKey)
       verified = true
       if (!updates.projectUuid && projects.length > 0 && opts.nonInteractive) {
-        const first = projects[0]
-        saveConfig({ projectUuid: first.projectUuid })
-        updates.projectUuid = first.projectUuid
+        updates.projectUuid = projects[0].projectUuid
       }
     } catch {
-      // Non-fatal — we still saved the key.
+      // Verification is best-effort; we still persist the key below.
     }
   }
+
+  saveConfig(updates)
 
   const cfg = getConfig()
   const lines = [
@@ -507,12 +470,10 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   }
 }
 
-// --- Entry ---
-
 async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const opts = parseSetupArgs(args)
 
-  // Explicit non-interactive flags take a non-interactive path regardless of TTY.
+  // Any scripting-style flag forces the non-interactive path, even in a TTY.
   const nonInteractiveByFlag =
     opts.apiKey !== undefined ||
     opts.projectUuid !== undefined ||
@@ -526,7 +487,6 @@ async function runSetup(args: string[], flags: Flags): Promise<unknown> {
     return renderResult(await runNonInteractive(opts), flags)
   }
 
-  // Default: OAuth browser login.
   return renderResult(await runOAuthFlow(opts), flags)
 }
 

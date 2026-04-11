@@ -56,71 +56,6 @@ export async function openBrowser(url: string): Promise<void> {
   }
 }
 
-function successHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ldash — Signed in</title>
-  <style>
-    html, body { margin: 0; padding: 0; background: #fafafa; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-           color: #111827; display: flex; align-items: center; justify-content: center;
-           min-height: 100vh; }
-    .card { background: white; border-radius: 12px; padding: 40px 48px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 10px 30px rgba(0,0,0,0.04);
-            max-width: 420px; text-align: center; }
-    .check { font-size: 56px; color: #10b981; line-height: 1; }
-    h1 { font-size: 22px; margin: 16px 0 8px; font-weight: 600; }
-    p { color: #6b7280; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
-    .hint { margin-top: 24px; font-size: 13px; color: #9ca3af; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="check">✓</div>
-    <h1>Signed in to ldash</h1>
-    <p>You can close this tab and return to your terminal.</p>
-    <p class="hint">Your CLI is finishing up…</p>
-  </div>
-</body>
-</html>`
-}
-
-function errorHtml(message: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ldash — Sign in failed</title>
-  <style>
-    html, body { margin: 0; padding: 0; background: #fafafa; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-           color: #111827; display: flex; align-items: center; justify-content: center;
-           min-height: 100vh; }
-    .card { background: white; border-radius: 12px; padding: 40px 48px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 10px 30px rgba(0,0,0,0.04);
-            max-width: 420px; text-align: center; }
-    .x { font-size: 56px; color: #ef4444; line-height: 1; }
-    h1 { font-size: 22px; margin: 16px 0 8px; font-weight: 600; }
-    p { color: #6b7280; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
-    code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px;
-           font-size: 13px; color: #374151; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="x">✗</div>
-    <h1>Sign in failed</h1>
-    <p>${escapeHtml(message)}</p>
-    <p>You can close this tab and try again in your terminal.</p>
-  </div>
-</body>
-</html>`
-}
-
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -128,6 +63,68 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function resultHtml(opts: {
+  title: string
+  icon: string
+  iconColor: string
+  heading: string
+  paragraphs: string[]
+}): string {
+  const body = opts.paragraphs
+    .map((p) => `    <p>${escapeHtml(p)}</p>`)
+    .join('\n')
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(opts.title)}</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #fafafa; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           color: #111827; display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; }
+    .card { background: white; border-radius: 12px; padding: 40px 48px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 10px 30px rgba(0,0,0,0.04);
+            max-width: 420px; text-align: center; }
+    .icon { font-size: 56px; line-height: 1; color: ${opts.iconColor}; }
+    h1 { font-size: 22px; margin: 16px 0 8px; font-weight: 600; }
+    p { color: #6b7280; margin: 8px 0 0; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${opts.icon}</div>
+    <h1>${escapeHtml(opts.heading)}</h1>
+${body}
+  </div>
+</body>
+</html>`
+}
+
+function successHtml(): string {
+  return resultHtml({
+    title: 'ldash — Signed in',
+    icon: '✓',
+    iconColor: '#10b981',
+    heading: 'Signed in to ldash',
+    paragraphs: ['You can close this tab and return to your terminal.'],
+  })
+}
+
+function errorHtml(message: string): string {
+  return resultHtml({
+    title: 'ldash — Sign in failed',
+    icon: '✗',
+    iconColor: '#ef4444',
+    heading: 'Sign in failed',
+    paragraphs: [
+      message,
+      'You can close this tab and try again in your terminal.',
+    ],
+  })
 }
 
 async function generatePat(
@@ -253,7 +250,6 @@ export async function loginWithOAuth(
   const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier)
   const state = client.randomState()
 
-  // Set up the local HTTP callback server.
   let resolveCallback: (url: URL) => void = () => {}
   let rejectCallback: (err: Error) => void = () => {}
   const callbackPromise = new Promise<URL>((resolve, reject) => {
@@ -303,7 +299,6 @@ export async function loginWithOAuth(
     resolveCallback(callbackUrl)
   })
 
-  // Start listening.
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(port, '127.0.0.1', () => {

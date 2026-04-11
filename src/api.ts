@@ -9,6 +9,16 @@ export function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `ApiKey ${apiKey}` }
 }
 
+export function createClientWithKey(
+  apiUrl: string,
+  apiKey: string,
+): LightdashClient {
+  return createOpenApiFetchClient<paths>({
+    baseUrl: apiUrl,
+    headers: authHeaders(apiKey),
+  })
+}
+
 export function createBaseClient(): {
   client: LightdashClient
   baseUrl: string
@@ -22,10 +32,7 @@ export function createBaseClient(): {
       `Sign in with:  ldash setup\nOr set env var: LIGHTDASH_API_KEY=<token>\nConfig file: ${getConfigPath()}`,
     )
   }
-  const client = createOpenApiFetchClient<paths>({
-    baseUrl: config.apiUrl,
-    headers: authHeaders(config.apiKey),
-  })
+  const client = createClientWithKey(config.apiUrl, config.apiKey)
   return { client, baseUrl: config.apiUrl, apiKey: config.apiKey }
 }
 
