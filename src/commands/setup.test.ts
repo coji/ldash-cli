@@ -125,6 +125,19 @@ describe('parseSetupArgs', () => {
     expect(() => parseSetupArgs(['--token-ttl', '1.5'])).toThrow(CliError)
   })
 
+  it('rejects --token-ttl values above the 1-year ceiling', () => {
+    // Regression: without a cap, huge values overflow
+    // `Date.now() + ttl * 3_600_000` and produce Invalid Date.
+    expect(() => parseSetupArgs(['--token-ttl', '100000'])).toThrow(CliError)
+    expect(() => parseSetupArgs(['--token-ttl', '1000000000000'])).toThrow(
+      CliError,
+    )
+  })
+
+  it('accepts --token-ttl at the 1-year ceiling', () => {
+    expect(parseSetupArgs(['--token-ttl', '8760']).tokenTtl).toBe(8760)
+  })
+
   it('rejects a value flag whose next token is another flag', () => {
     // Regression: parser used to greedily consume the next token as a
     // value, so `--api-key --project-uuid xxx` would set apiKey to

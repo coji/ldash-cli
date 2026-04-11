@@ -76,7 +76,10 @@ export function parseSetupArgs(args: string[]): SetupOptions {
     else if (arg === '--project-uuid') opts.projectUuid = value
     else if (arg === '--oauth-port')
       opts.oauthPort = parsePositiveInt(arg, value, 65535)
-    else if (arg === '--token-ttl') opts.tokenTtl = parsePositiveInt(arg, value)
+    else if (arg === '--token-ttl')
+      // Cap at 1 year — generous for CLI use, and keeps
+      // `Date.now() + ttl * 3_600_000` well away from Date overflow.
+      opts.tokenTtl = parsePositiveInt(arg, value, 8760)
   }
 
   if (positional.length > 1) {
@@ -245,11 +248,14 @@ async function chooseProjectInteractive(
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const answer = await rl.question(`Choose [1-${projects.length}]: `)
-    const idx = Number.parseInt(answer.trim(), 10) - 1
-    if (idx < 0 || idx >= projects.length || Number.isNaN(idx)) {
+    const answer = (await rl.question(`Choose [1-${projects.length}]: `)).trim()
+    // Strict digit-only check — Number.parseInt('1abc', 10) would return 1
+    // and silently pick project 1 even though the user typed garbage.
+    const valid = /^\d+$/.test(answer)
+    const idx = valid ? Number(answer) - 1 : -1
+    if (!valid || idx < 0 || idx >= projects.length) {
       throw new CliError(
-        `Invalid project selection "${answer.trim()}"`,
+        `Invalid project selection "${answer}"`,
         `Expected a number between 1 and ${projects.length}.`,
         'Run "ldash setup" again, or: ldash config set --project-uuid <uuid>',
       )
@@ -538,7 +544,7 @@ export const setupGroup: CommandGroup = {
     '',
     'Flags:',
     '  --oauth-port <n>   pin the local OAuth callback port (firewall allowlist)',
-    '  --token-ttl <h>    Personal Access Token TTL in hours (default 720 = 30 days)',
+    '  --token-ttl <h>    Personal Access Token TTL in hours (default 720 = 30 days, max 8760 = 1 year)',
     '  --non-interactive  never prompt; auto-pick first project if needed',
     '  --json             machine-readable output',
   ],
