@@ -9,6 +9,28 @@ export function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `ApiKey ${apiKey}` }
 }
 
+/**
+ * fetch() wrapper that converts transport-level failures (DNS, TLS,
+ * connection refused, etc.) into CliError so they surface through the
+ * --json envelope like every other user-facing error. HTTP-level errors
+ * (!response.ok) are still the caller's responsibility to handle.
+ */
+export async function safeFetch(
+  url: string,
+  init: RequestInit,
+  context: { what: string; hint: string },
+): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (err) {
+    throw new CliError(
+      context.what,
+      `Could not reach ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      context.hint,
+    )
+  }
+}
+
 export function createClientWithKey(
   apiUrl: string,
   apiKey: string,

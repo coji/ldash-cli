@@ -3,6 +3,7 @@ import * as http from 'node:http'
 import { URL } from 'node:url'
 import { promisify } from 'node:util'
 import * as client from 'openid-client'
+import { safeFetch } from './api.js'
 import { CliError } from './errors.js'
 
 const execFileAsync = promisify(execFile)
@@ -139,27 +140,6 @@ function errorHtml(message: string): string {
       'You can close this tab and try again in your terminal.',
     ],
   })
-}
-
-/**
- * fetch() wrapper that converts transport-level failures (DNS, TLS,
- * connection refused, etc.) into a CliError so they surface through the
- * --json envelope like every other user-facing error.
- */
-async function safeFetch(
-  url: string,
-  init: RequestInit,
-  context: { what: string; hint: string },
-): Promise<Response> {
-  try {
-    return await fetch(url, init)
-  } catch (err) {
-    throw new CliError(
-      context.what,
-      `Could not reach Lightdash at ${url}: ${err instanceof Error ? err.message : String(err)}`,
-      context.hint,
-    )
-  }
 }
 
 async function generatePat(

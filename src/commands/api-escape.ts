@@ -37,7 +37,10 @@ export const apiGroup: CommandGroup = {
     const fetchOpts: RequestInit = { method, headers }
     if (opts.body) fetchOpts.body = opts.body
 
-    const response = await fetch(`${baseUrl}${path}`, fetchOpts)
+    const response = await api.safeFetch(`${baseUrl}${path}`, fetchOpts, {
+      what: `API ${method} ${path} failed`,
+      hint: 'Check your network connection and the API path. See: https://docs.lightdash.com/api-reference/v1/introduction',
+    })
     if (!response.ok) {
       const text = await response.text()
       throw new CliError(
