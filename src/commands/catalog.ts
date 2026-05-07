@@ -12,12 +12,16 @@ export const catalogGroup: CommandGroup = {
   commands: {
     list: {
       description: 'Get the full data catalog for the project',
-      usage: 'ldash catalog list',
-      examples: ['ldash catalog list'],
+      usage: 'ldash catalog list [--compact] [--fields <a,b,...>]',
+      examples: [
+        'ldash catalog list',
+        'ldash catalog list --compact                        # type + name + description',
+      ],
       nextSteps: [
         'ldash catalog metadata <table> for table details',
         'ldash explore get <exploreId> for queryable fields',
       ],
+      compactFields: ['type', 'name', 'description', 'tableName', 'fieldType'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.getCatalog(client, projectUuid)
@@ -25,9 +29,10 @@ export const catalogGroup: CommandGroup = {
     },
     metrics: {
       description: 'Get the metrics catalog',
-      usage: 'ldash catalog metrics',
-      examples: ['ldash catalog metrics'],
+      usage: 'ldash catalog metrics [--compact] [--fields <a,b,...>]',
+      examples: ['ldash catalog metrics', 'ldash catalog metrics --compact'],
       nextSteps: ['ldash explore get <exploreId> to see metric definitions'],
+      compactFields: ['name', 'label', 'description', 'tableName', 'fieldType'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.getMetricsCatalog(client, projectUuid)
@@ -35,9 +40,10 @@ export const catalogGroup: CommandGroup = {
     },
     'custom-metrics': {
       description: 'Get custom metrics for the project',
-      usage: 'ldash catalog custom-metrics',
+      usage: 'ldash catalog custom-metrics [--compact] [--fields <a,b,...>]',
       examples: ['ldash catalog custom-metrics'],
       nextSteps: ['ldash catalog metrics for all metrics'],
+      compactFields: ['name', 'label', 'description', 'tableName'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.getCustomMetrics(client, projectUuid)

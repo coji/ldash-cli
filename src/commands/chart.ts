@@ -12,9 +12,15 @@ export const chartGroup: CommandGroup = {
   commands: {
     list: {
       description: 'List all charts in the project',
-      usage: 'ldash chart list',
-      examples: ['ldash chart list', 'ldash chart list --json | jq ".[].name"'],
+      usage: 'ldash chart list [--compact] [--fields <a,b,...>]',
+      examples: [
+        'ldash chart list',
+        'ldash chart list --compact                          # uuid + name + description',
+        'ldash chart list --fields uuid,name,spaceName',
+        'ldash chart list --json | jq ".[].name"',
+      ],
       nextSteps: ['ldash chart get <chartUuid>'],
+      compactFields: ['uuid', 'name', 'description', 'spaceName', 'spaceUuid'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.listCharts(client, projectUuid)

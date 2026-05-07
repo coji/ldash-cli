@@ -12,12 +12,15 @@ export const exploreGroup: CommandGroup = {
   commands: {
     list: {
       description: 'List all explores (tables/models) in the project',
-      usage: 'ldash explore list',
+      usage: 'ldash explore list [--compact] [--fields <a,b,...>]',
       examples: [
         'ldash explore list',
+        'ldash explore list --compact                        # name + label + description',
+        'ldash explore list --fields name,label              # custom subset',
         'ldash explore list --json | jq ".[].name"',
       ],
       nextSteps: ['ldash explore get <exploreId>'],
+      compactFields: ['name', 'label', 'description', 'tags', 'groupLabel'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.listExplores(client, projectUuid)

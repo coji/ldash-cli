@@ -16,12 +16,14 @@ const GROUP_LOADERS: Record<string, () => Promise<CommandGroup>> = {
   dashboard: () =>
     import('./commands/dashboard.js').then((m) => m.dashboardGroup),
   catalog: () => import('./commands/catalog.js').then((m) => m.catalogGroup),
+  search: () => import('./commands/search.js').then((m) => m.searchGroup),
   project: () => import('./commands/project.js').then((m) => m.projectGroup),
   space: () => import('./commands/space.js').then((m) => m.spaceGroup),
   org: () => import('./commands/org.js').then((m) => m.orgGroup),
   api: () => import('./commands/api-escape.js').then((m) => m.apiGroup),
   config: () => import('./commands/config.js').then((m) => m.configGroup),
   setup: () => import('./commands/setup.js').then((m) => m.setupGroup),
+  doctor: () => import('./commands/doctor.js').then((m) => m.doctorGroup),
 }
 
 // --- Help renderers ---
@@ -37,18 +39,23 @@ Groups:
   chart       Saved charts and their data
   dashboard   Dashboards (tiles, filters, layout)
   catalog     Data catalog and metrics
+  search      Search everything (tables, fields, charts, dashboards, ...)
   project     Projects and validation
   space       Spaces (folders)
   org         Organization settings
   api         Direct API access (escape hatch)
   config      Manage CLI configuration
   setup       Setup wizard
+  doctor      End-to-end health check (URL → token → project)
 
 Flags:
-  --json      Compact JSON output (for piping)
-  --help      Show help for any group or command
+  --json          Compact JSON output (for piping)
+  --fields a,b    Project list-style results down to selected keys
+  --compact       Apply a sensible default --fields subset for the command
+  --help          Show help for any group or command
 
 Quick start:
+  ldash search "<query>"                      # find anything by name
   ldash explore list                          # see available tables
   ldash explore get <exploreId>               # see dimensions & metrics
   ldash query run <exploreId> --dimensions '["d"]' --metrics '["m"]'
@@ -60,7 +67,17 @@ Setup:
   ldash setup                                   # sign in with browser (OAuth)
   ldash setup https://your-instance.com         # sign in against a specific instance
   ldash setup --pat                             # paste a Personal Access Token instead
-  For agents/CI: ldash setup <url> --api-key <token> --project-uuid <uuid>`)
+  ldash setup --check                           # is this environment ready to run setup?
+  For agents/CI: ldash setup <url> --api-key <token> --project-uuid <uuid>
+
+Agents / CI — set these env vars instead of running setup:
+  LIGHTDASH_API_URL       # e.g. https://app.lightdash.cloud
+  LIGHTDASH_API_KEY       # Personal Access Token (preferred over OAuth in non-TTY)
+  LIGHTDASH_PROJECT_UUID  # set this so most commands work without --project-uuid
+
+  Verify with:  ldash config show              (jq '.ready' on --json output → true|false)
+  Health check: ldash doctor                   (probes URL, token, project)
+  PAT setup:    https://<instance>/generalSettings/personalAccessTokens`)
 }
 
 function printGroupHelp(groupName: string, group: CommandGroup): void {
@@ -135,6 +152,7 @@ async function main(args: string[], flags: Flags): Promise<void> {
       `Unknown group "${groupName}"`,
       `"${groupName}" is not a valid command group.`,
       `Available groups: ${Object.keys(GROUP_LOADERS).join(', ')}\nRun "ldash --help" for details.`,
+      'UNKNOWN_GROUP',
     )
   }
 
@@ -154,7 +172,7 @@ async function main(args: string[], flags: Flags): Promise<void> {
     }
 
     const result = await group.defaultRun(restArgs, flags)
-    output(result, flags)
+    output(result, flags, group.compactFields)
     return
   }
 
@@ -172,6 +190,7 @@ async function main(args: string[], flags: Flags): Promise<void> {
       `Unknown command "${groupName} ${commandName}"`,
       `"${commandName}" is not a valid command in the "${groupName}" group.`,
       `Available commands: ${Object.keys(group.commands).join(', ')}\nRun "ldash ${groupName} --help" for details.`,
+      'UNKNOWN_COMMAND',
     )
   }
 
@@ -184,7 +203,7 @@ async function main(args: string[], flags: Flags): Promise<void> {
   }
 
   const result = await cmd.run(restArgs, flags)
-  output(result, flags)
+  output(result, flags, cmd.compactFields)
 }
 
 /**

@@ -12,12 +12,15 @@ export const dashboardGroup: CommandGroup = {
   commands: {
     list: {
       description: 'List all dashboards in the project',
-      usage: 'ldash dashboard list',
+      usage: 'ldash dashboard list [--compact] [--fields <a,b,...>]',
       examples: [
         'ldash dashboard list',
+        'ldash dashboard list --compact                      # uuid + name + description',
+        'ldash dashboard list --fields uuid,name,spaceUuid',
         'ldash dashboard list --json | jq ".[].name"',
       ],
       nextSteps: ['ldash dashboard get <dashboardUuid>'],
+      compactFields: ['uuid', 'name', 'description', 'spaceUuid'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.listDashboards(client, projectUuid)
