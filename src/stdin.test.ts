@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CliError } from './errors.js'
 import { readBodyOrStdin, readPositionalOrStdin } from './stdin.js'
 
 const ORIGINAL_STDIN = process.stdin
@@ -48,7 +47,13 @@ describe('readBodyOrStdin', () => {
 
   it('throws on empty piped stdin', async () => {
     withStdin('')
-    await expect(readBodyOrStdin('-')).rejects.toBeInstanceOf(CliError)
+    // Pin the stable error code so a refactor that loses the
+    // INVALID_INPUT classification gets caught by the test, not by an
+    // agent in production.
+    await expect(readBodyOrStdin('-')).rejects.toMatchObject({
+      name: 'CliError',
+      code: 'INVALID_INPUT',
+    })
   })
 })
 
@@ -64,9 +69,10 @@ describe('readPositionalOrStdin', () => {
 
   it('throws on whitespace-only piped stdin', async () => {
     withStdin('   \n  ')
-    await expect(readPositionalOrStdin('-', 'sql')).rejects.toBeInstanceOf(
-      CliError,
-    )
+    await expect(readPositionalOrStdin('-', 'sql')).rejects.toMatchObject({
+      name: 'CliError',
+      code: 'INVALID_INPUT',
+    })
   })
 })
 
@@ -100,13 +106,17 @@ describe('@file syntax', () => {
   it('throws CliError for a missing @file', async () => {
     await expect(
       readBodyOrStdin('@/nonexistent/path/to/file.json'),
-    ).rejects.toBeInstanceOf(CliError)
+    ).rejects.toMatchObject({ name: 'CliError', code: 'INVALID_INPUT' })
   })
 
   it('throws CliError for an empty @-prefix with no path', async () => {
-    await expect(readBodyOrStdin('@')).rejects.toBeInstanceOf(CliError)
-    await expect(readPositionalOrStdin('@', 'sql')).rejects.toBeInstanceOf(
-      CliError,
-    )
+    await expect(readBodyOrStdin('@')).rejects.toMatchObject({
+      name: 'CliError',
+      code: 'INVALID_INPUT',
+    })
+    await expect(readPositionalOrStdin('@', 'sql')).rejects.toMatchObject({
+      name: 'CliError',
+      code: 'INVALID_INPUT',
+    })
   })
 })

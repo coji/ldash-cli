@@ -553,6 +553,9 @@ function runSetupCheck(): SetupCheckResult {
   const apiKeyResolved = Boolean(cfg.apiKey)
   const projectResolved = Boolean(cfg.projectUuid)
   const ready = apiKeyResolved && projectResolved
+  // Mirror "ldash doctor": flip the exit code (not exit() — let the
+  // dispatcher drain stdout first) so `ldash setup --check || ...` works.
+  if (!ready) process.exitCode = 1
 
   let recommendation: string
   if (ready) {

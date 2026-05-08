@@ -86,6 +86,14 @@ export const searchGroup: CommandGroup = {
       int: { limit: { min: 1, max: 1000 } },
     })
     const query = parsed.positional[0]
+    if (query.trim() === '') {
+      throw new CliError(
+        'Empty search query',
+        'A whitespace-only query would match every catalog row and every chart/dashboard/space — almost certainly not what you wanted.',
+        'Pass a real query: ldash search "<keyword>"',
+        'INVALID_INPUT',
+      )
+    }
     const kinds = parseKinds(parsed.string.kind)
     const limit = parsed.int.limit ?? 50
 
