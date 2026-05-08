@@ -35,7 +35,15 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function chart(name: string, uuid: string, description?: string) {
+// Test fixtures intentionally include only the fields search.ts reads;
+// the cast lets us skip the long tail of optional/unused properties on
+// the SDK response types without listing them out.
+type ChartHit = Awaited<ReturnType<typeof api.listCharts>>[number]
+type DashboardHit = Awaited<ReturnType<typeof api.listDashboards>>[number]
+type SpaceHit = Awaited<ReturnType<typeof api.listSpaces>>[number]
+type CatalogHit = Awaited<ReturnType<typeof api.getCatalog>>[number]
+
+function chart(name: string, uuid: string, description?: string): ChartHit {
   return {
     uuid,
     name,
@@ -48,10 +56,14 @@ function chart(name: string, uuid: string, description?: string) {
     dashboardUuid: null,
     dashboardName: null,
     slug: name,
-  } as Awaited<ReturnType<typeof api.listCharts>>[number]
+  } as ChartHit
 }
 
-function dashboard(name: string, uuid: string, description?: string) {
+function dashboard(
+  name: string,
+  uuid: string,
+  description?: string,
+): DashboardHit {
   return {
     uuid,
     name,
@@ -65,10 +77,10 @@ function dashboard(name: string, uuid: string, description?: string) {
     pinnedListUuid: null,
     pinnedListOrder: null,
     verification: null,
-  } as Awaited<ReturnType<typeof api.listDashboards>>[number]
+  } as DashboardHit
 }
 
-function space(name: string, uuid: string) {
+function space(name: string, uuid: string): SpaceHit {
   return {
     uuid,
     name,
@@ -83,10 +95,10 @@ function space(name: string, uuid: string) {
     path: '/',
     access: [],
     inheritsFromOrgOrProject: false,
-  } as Awaited<ReturnType<typeof api.listSpaces>>[number]
+  } as SpaceHit
 }
 
-function table(name: string, description?: string) {
+function table(name: string, description?: string): CatalogHit {
   return {
     type: 'table' as const,
     name,
@@ -97,14 +109,14 @@ function table(name: string, description?: string) {
     aiHints: null,
     icon: null,
     categories: [],
-  } as Awaited<ReturnType<typeof api.getCatalog>>[number]
+  } as CatalogHit
 }
 
 function field(
   name: string,
   tableName: string,
   fieldType: 'metric' | 'dimension',
-) {
+): CatalogHit {
   return {
     type: 'field' as const,
     fieldType,
@@ -113,13 +125,15 @@ function field(
     tableLabel: tableName,
     tableName,
     basicType: 'string' as const,
-    fieldValueType: 'string' as never,
+    // fieldValueType is `MetricType | DimensionType`; 'string' is a real
+    // member of both unions, so no `as never` cast is needed.
+    fieldValueType: 'string',
     catalogSearchUuid: 'cs',
     owner: null,
     aiHints: null,
     icon: null,
     categories: [],
-  } as Awaited<ReturnType<typeof api.getCatalog>>[number]
+  } as CatalogHit
 }
 
 function runSearch(...args: string[]): Promise<unknown> {

@@ -141,7 +141,7 @@ ${cmd.nextSteps.map((n) => `  ${n}`).join('\n')}`)
  */
 const wantsJsonOutput = process.argv.includes('--json')
 
-function reportError(err: unknown, json: boolean): void {
+function reportError(err: unknown, json: boolean | undefined): void {
   const cli = err instanceof CliError ? err : wrapApiError(err)
   if (json) {
     console.error(JSON.stringify(formatErrorJson(cli)))
@@ -157,12 +157,10 @@ try {
   globalArgs = parsed.args
   globalFlags = parsed.flags
 } catch (err) {
+  // Synchronous failures land before main() — without this catch, node
+  // would print a raw stack trace and the JSON envelope contract would
+  // silently break for any --json caller.
   reportError(err, wantsJsonOutput)
-  // Synchronous failures land before main() — node would otherwise print
-  // a raw stack trace, which defeats the JSON envelope contract.
-  // drainStandardStreams isn't reachable yet since main() owns it; just
-  // exit. console.error on a TTY is synchronous, and on a pipe Node
-  // flushes stderr at process exit.
   process.exit(1)
 }
 
@@ -264,7 +262,7 @@ main(globalArgs, globalFlags)
     process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0)
   })
   .catch(async (err: unknown) => {
-    reportError(err, globalFlags.json ?? false)
+    reportError(err, globalFlags.json)
     await drainStandardStreams()
     process.exit(1)
   })
