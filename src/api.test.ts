@@ -103,7 +103,7 @@ describe('mapApiError', () => {
     expect(err.code).toBe('UPSTREAM')
   })
 
-  it('promotes "field not found" 400 to FIELD_NOT_FOUND', () => {
+  it('promotes "field not found" 400 to FIELD_NOT_FOUND on an explore context', () => {
     const err = mapApiError(
       envelope(
         'ValidationError',
@@ -114,6 +114,23 @@ describe('mapApiError', () => {
     )
     expect(err.code).toBe('FIELD_NOT_FOUND')
     expect(err.hint).toContain('ldash explore get orders')
+  })
+
+  it('does NOT promote field-shaped 400s on a project context', () => {
+    // Regression: runSqlQuery passes { resource: 'project', id: <uuid> }.
+    // The previous code would emit `ldash explore get <projectUuid>` — a
+    // confusing hint that mixes UUIDs with explore names. SQL errors are
+    // not fixable by inspecting an explore, so stay BAD_REQUEST.
+    const err = mapApiError(
+      envelope(
+        'ValidationError',
+        'Field "doesnt_exist" does not exist in the warehouse',
+        400,
+      ),
+      { resource: 'project', id: 'project-uuid-xxx' },
+    )
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(err.hint).not.toContain('project-uuid-xxx')
   })
 
   it('classifies generic 400 as BAD_REQUEST', () => {

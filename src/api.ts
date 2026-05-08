@@ -258,14 +258,21 @@ export function mapApiError(
     )
   }
 
-  // 400 — generic bad request. Promote to FIELD_NOT_FOUND when the message
-  // makes it obvious the user referenced a non-existent dimension/metric.
+  // 400 — generic bad request. Promote to FIELD_NOT_FOUND only when the
+  // caller is operating on an explore/field context AND the message reads
+  // like a field-not-found error. Without the resource gate, runSqlQuery
+  // (which carries `resource: 'project'`) would emit a "Run `ldash explore
+  // get <projectUuid>`" hint — wrong on multiple counts (the UUID is not
+  // an explore name; raw SQL errors aren't fixable by reading the
+  // explore). Other 400s fall through to BAD_REQUEST with a generic hint.
   if (
     statusCode === 400 ||
     name === 'ValidationError' ||
     name === 'ParameterError'
   ) {
-    if (looksLikeFieldError(message)) {
+    const isFieldContext =
+      ctx.resource === 'explore' || ctx.resource === 'field'
+    if (isFieldContext && looksLikeFieldError(message)) {
       const exploreHint = ctx.id
         ? `Run "ldash explore get ${ctx.id}" to see valid dimensions and metrics.`
         : 'Run "ldash explore get <exploreId>" to see valid dimensions and metrics.'

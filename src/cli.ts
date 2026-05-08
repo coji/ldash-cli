@@ -132,10 +132,39 @@ ${cmd.nextSteps.map((n) => `  ${n}`).join('\n')}`)
 
 // --- Main ---
 
-// Parse global flags once at the top so the error handler can honor --json.
-const { args: globalArgs, flags: globalFlags } = parseGlobalFlags(
-  process.argv.slice(2),
-)
+/**
+ * Pre-detect `--json` from raw argv so the error handler can format the
+ * envelope correctly even when parseGlobalFlags itself throws (e.g.
+ * `ldash --fields` with no value). Without this, an early throw would
+ * bypass the parsed `globalFlags.json` check and dump a raw stack trace
+ * — the exact UX agents need to avoid.
+ */
+const wantsJsonOutput = process.argv.includes('--json')
+
+function reportError(err: unknown, json: boolean): void {
+  const cli = err instanceof CliError ? err : wrapApiError(err)
+  if (json) {
+    console.error(JSON.stringify(formatErrorJson(cli)))
+  } else {
+    console.error(formatError(cli))
+  }
+}
+
+let globalArgs: string[]
+let globalFlags: Flags
+try {
+  const parsed = parseGlobalFlags(process.argv.slice(2))
+  globalArgs = parsed.args
+  globalFlags = parsed.flags
+} catch (err) {
+  reportError(err, wantsJsonOutput)
+  // Synchronous failures land before main() — node would otherwise print
+  // a raw stack trace, which defeats the JSON envelope contract.
+  // drainStandardStreams isn't reachable yet since main() owns it; just
+  // exit. console.error on a TTY is synchronous, and on a pipe Node
+  // flushes stderr at process exit.
+  process.exit(1)
+}
 
 async function main(args: string[], flags: Flags): Promise<void> {
   const groupName = args[0]
@@ -235,12 +264,7 @@ main(globalArgs, globalFlags)
     process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0)
   })
   .catch(async (err: unknown) => {
-    const cli = err instanceof CliError ? err : wrapApiError(err)
-    if (globalFlags.json) {
-      console.error(JSON.stringify(formatErrorJson(cli)))
-    } else {
-      console.error(formatError(cli))
-    }
+    reportError(err, globalFlags.json ?? false)
     await drainStandardStreams()
     process.exit(1)
   })
