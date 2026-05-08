@@ -553,9 +553,6 @@ function runSetupCheck(): SetupCheckResult {
   const apiKeyResolved = Boolean(cfg.apiKey)
   const projectResolved = Boolean(cfg.projectUuid)
   const ready = apiKeyResolved && projectResolved
-  // Mirror "ldash doctor": flip the exit code (not exit() — let the
-  // dispatcher drain stdout first) so `ldash setup --check || ...` works.
-  if (!ready) process.exitCode = 1
 
   let recommendation: string
   if (ready) {
@@ -620,6 +617,11 @@ async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const flow = selectSetupFlow(opts)
   if (flow === 'check') {
     const result = runSetupCheck()
+    // Mirror "ldash doctor": set the exit code (not exit() — let the
+    // dispatcher drain stdout first) so `ldash setup --check || ...`
+    // works. Kept here, not inside runSetupCheck, so the probe stays a
+    // pure read.
+    if (!result.ok) process.exitCode = 1
     return renderable(result, formatSetupCheck(result), flags)
   }
   let result: SetupResult
