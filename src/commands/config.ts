@@ -66,9 +66,15 @@ export const configGroup: CommandGroup = {
       description:
         'Show current configuration with source (env / config file / default)',
       usage: 'ldash config show [--json]',
-      examples: ['ldash config show', 'ldash config show --json'],
+      examples: [
+        'ldash config show',
+        'ldash config show --json',
+        'ldash config show --json | jq .ready          # true once URL+key+project resolve',
+        'ldash config show --json | jq .apiKey.set     # true|false for just the API key',
+      ],
       nextSteps: [
         'ldash config set to update saved values',
+        'ldash doctor to actually probe the API with the resolved credentials',
         'unset LIGHTDASH_API_KEY (etc.) to fall back to the saved config or defaults',
       ],
       run: (_args, flags: Flags) => {
@@ -84,18 +90,34 @@ export const configGroup: CommandGroup = {
         if (r.projectUuid.source === 'env' && r.projectUuid.envVar)
           envOverrides.push(r.projectUuid.envVar)
 
+        // Per-field `set` and the top-level `ready` are stable boolean
+        // shortcuts so agents can `jq '.ready'` or `jq '.apiKey.set'` instead
+        // of pattern-matching on `(not set)` strings or the `unset` source.
+        const apiKeySet = r.apiKey.source !== 'unset' && Boolean(r.apiKey.value)
+        const projectSet =
+          r.projectUuid.source !== 'unset' && Boolean(r.projectUuid.value)
+        // Mirror the apiKey/project shape so an empty-string env var
+        // (e.g. `LIGHTDASH_API_URL=` from a half-rendered template) doesn't
+        // light up `ready: true` with no actual URL to call.
+        const apiUrlSet = r.apiUrl.source !== 'unset' && Boolean(r.apiUrl.value)
+        const ready = apiKeySet && projectSet && apiUrlSet
+
         const structured = {
+          ready,
           apiUrl: {
+            set: apiUrlSet,
             value: r.apiUrl.value,
             source: r.apiUrl.source,
             envVar: r.apiUrl.envVar,
           },
           apiKey: {
+            set: apiKeySet,
             masked: maskSecret(r.apiKey.value),
             source: r.apiKey.source,
             envVar: r.apiKey.envVar,
           },
           projectUuid: {
+            set: projectSet,
             value: r.projectUuid.value ?? null,
             source: r.projectUuid.source,
             envVar: r.projectUuid.envVar,

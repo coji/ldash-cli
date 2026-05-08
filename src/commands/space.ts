@@ -11,9 +11,13 @@ export const spaceGroup: CommandGroup = {
   commands: {
     list: {
       description: 'List all spaces in the project',
-      usage: 'ldash space list',
-      examples: ['ldash space list'],
+      usage: 'ldash space list [--compact] [--fields <a,b,...>]',
+      examples: [
+        'ldash space list',
+        'ldash space list --compact                          # uuid + name + slug',
+      ],
       nextSteps: ['ldash space get <spaceUuid>'],
+      compactFields: ['uuid', 'name', 'slug'],
       run: () => {
         const { client, projectUuid } = api.createClient()
         return api.listSpaces(client, projectUuid)

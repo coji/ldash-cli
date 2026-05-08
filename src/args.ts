@@ -31,6 +31,7 @@ function unknownFlag(name: string): CliError {
     `Unknown flag "--${name}"`,
     `The flag "--${name}" is not recognized by this command.`,
     'Run "ldash <group> <cmd> --help" for available flags.',
+    'UNKNOWN_FLAG',
   )
 }
 
@@ -39,6 +40,7 @@ function missingValue(name: string): CliError {
     `Missing value for --${name}`,
     `The flag "--${name}" requires a value but none was provided.`,
     `Pass a value: --${name} <value>`,
+    'MISSING_FLAG',
   )
 }
 
@@ -85,6 +87,7 @@ export function parseArgs(
           `Invalid value for --${name}`,
           `"${next}" is not a positive integer.`,
           `Pass a positive integer: --${name} 10`,
+          'INVALID_INPUT',
         )
       }
       const value = Number.parseInt(next, 10)
@@ -94,6 +97,7 @@ export function parseArgs(
           `Invalid value for --${name}`,
           `${value} is below the minimum (${bounds.min}).`,
           `Pass a value >= ${bounds.min}: --${name} ${bounds.min}`,
+          'INVALID_INPUT',
         )
       }
       if (bounds.max !== undefined && value > bounds.max) {
@@ -101,6 +105,7 @@ export function parseArgs(
           `Invalid value for --${name}`,
           `${value} exceeds the maximum (${bounds.max}).`,
           `Pass a value <= ${bounds.max}: --${name} ${bounds.max}`,
+          'INVALID_INPUT',
         )
       }
       result.int[name] = value
@@ -121,6 +126,7 @@ export function parseArgs(
       'Too many positional arguments',
       `This command accepts at most ${noun}${labels ? ` (${labels})` : ''}, got: ${result.positional.join(', ')}`,
       'Remove the extra arguments or check the command usage.',
+      'INVALID_INPUT',
     )
   }
 
@@ -135,6 +141,7 @@ export function parseArgs(
       `Missing required argument <${name}>`,
       `This command needs a ${name} to run.`,
       `Pass it as the ${ord} positional argument.`,
+      'MISSING_ARGUMENT',
     )
   }
 

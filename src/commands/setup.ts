@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import { createInterface } from 'node:readline/promises'
 import { URL } from 'node:url'
 import * as api from '../api.js'
@@ -21,6 +22,7 @@ export interface SetupOptions {
   projectUuid?: string
   pat: boolean
   nonInteractive: boolean
+  check: boolean
   oauthPort?: number
   tokenTtl?: number
 }
@@ -31,7 +33,7 @@ export function parseSetupArgs(args: string[]): SetupOptions {
   const parsed = parseArgs(args, {
     positionalMax: 1,
     positionals: ['url'],
-    boolean: ['pat', 'non-interactive'],
+    boolean: ['pat', 'non-interactive', 'check'],
     string: ['api-key', 'project-uuid'],
     // `--token-ttl` is capped at 1 year — generous for CLI use, and keeps
     // `Date.now() + ttl * 3_600_000` well away from Date overflow.
@@ -44,6 +46,7 @@ export function parseSetupArgs(args: string[]): SetupOptions {
   const opts: SetupOptions = {
     pat: parsed.boolean.pat,
     nonInteractive: parsed.boolean['non-interactive'],
+    check: parsed.boolean.check,
   }
   if (parsed.positional.length === 1) opts.url = parsed.positional[0]
   if (parsed.string['api-key'] !== undefined)
@@ -71,6 +74,7 @@ export function normalizeUrl(input: string): string {
       `Invalid URL "${input}"`,
       'Could not parse the provided URL.',
       'Expected something like: https://app.lightdash.cloud',
+      'INVALID_INPUT',
     )
   }
 }
@@ -85,6 +89,9 @@ function isInteractive(): boolean {
 
 function requireInteractive(action: string): void {
   if (isInteractive()) return
+  // No code matches "needs a TTY" cleanly; INVALID_INPUT is the closest fit
+  // (the user-supplied execution context is wrong) and lets agents branch on
+  // it the same way they branch on missing args.
   throw new CliError(
     `${action} requires an interactive terminal`,
     'This session is not connected to a terminal (non-TTY detected).',
@@ -107,6 +114,7 @@ function requireInteractive(action: string): void {
       '      --api-key <token> \\',
       '      --project-uuid <uuid>',
     ].join('\n      '),
+    'INVALID_INPUT',
   )
 }
 
@@ -233,6 +241,7 @@ async function chooseProjectInteractive(
         `Invalid project selection "${answer}"`,
         `Expected a number between 1 and ${projects.length}.`,
         'Run "ldash setup" again, or: ldash config set --project-uuid <uuid>',
+        'INVALID_INPUT',
       )
     }
     return projects[idx]
@@ -258,6 +267,7 @@ async function selectAndSaveProject(
       'Could not fetch project list',
       err instanceof Error ? err.message : String(err),
       'Your token was saved. Set the project manually: ldash setup --project-uuid <uuid>',
+      'UPSTREAM',
     )
   }
 
@@ -384,6 +394,7 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
       'No token provided',
       'Setup cancelled: an empty token was entered.',
       'Run "ldash setup --pat" again and paste the token from the browser.',
+      'INVALID_INPUT',
     )
   }
 
@@ -396,6 +407,7 @@ async function runPatFlow(opts: SetupOptions): Promise<SetupResult> {
       'Token verification failed',
       err instanceof Error ? err.message : String(err),
       'Double-check that you copied the full Personal Access Token, then run "ldash setup --pat" again.',
+      'AUTH_INVALID',
     )
   }
   saveConfig({ apiKey: token })
@@ -436,6 +448,7 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
         '  ldash setup --api-key <token>',
         '  ldash setup --project-uuid <uuid>',
       ].join('\n      '),
+      'MISSING_ARGUMENT',
     )
   }
 
@@ -489,10 +502,14 @@ async function runNonInteractive(opts: SetupOptions): Promise<SetupResult> {
   }
 }
 
-export type SetupFlow = 'pat' | 'scripted' | 'oauth'
+export type SetupFlow = 'check' | 'pat' | 'scripted' | 'oauth'
 
 /**
  * Pick which setup flow to run for a given set of options.
+ *
+ * `--check` is a non-interactive readiness probe and takes precedence over
+ * everything else so an agent can call `setup --check` even with stray flags
+ * inherited from prior invocations.
  *
  * `--non-interactive` on its own is a prompt-suppressor (honored by the
  * OAuth and PAT flows via selectAndSaveProject), not a flow selector — we
@@ -500,16 +517,115 @@ export type SetupFlow = 'pat' | 'scripted' | 'oauth'
  * something for it to write.
  */
 export function selectSetupFlow(opts: SetupOptions): SetupFlow {
+  if (opts.check) return 'check'
   if (opts.pat) return 'pat'
   if (opts.apiKey !== undefined || opts.projectUuid !== undefined)
     return 'scripted'
   return 'oauth'
 }
 
+interface SetupCheckResult {
+  ok: boolean
+  /** Can OAuth/PAT prompts run here? Requires both stdin and stdout to be a TTY. */
+  interactive: boolean
+  /** Stable presence flags so agents can branch without parsing the message. */
+  envVars: {
+    LIGHTDASH_API_URL: boolean
+    LIGHTDASH_API_KEY: boolean
+    LIGHTDASH_PROJECT_UUID: boolean
+  }
+  config: {
+    /** True if a config file lives at `getConfigPath()`. */
+    exists: boolean
+    /** True if either env var or config file resolved a usable API key. */
+    apiKeyResolved: boolean
+    /** True if either env var or config file resolved a project UUID. */
+    projectResolved: boolean
+  }
+  /** Human-readable next step for the current state. */
+  recommendation: string
+  configFile: string
+}
+
+function runSetupCheck(): SetupCheckResult {
+  const interactive = isInteractive()
+  const cfg = getConfig()
+  const apiKeyResolved = Boolean(cfg.apiKey)
+  const projectResolved = Boolean(cfg.projectUuid)
+  const ready = apiKeyResolved && projectResolved
+
+  let recommendation: string
+  if (ready) {
+    recommendation =
+      'Ready. Try: ldash explore list   (or run "ldash doctor" to verify)'
+  } else if (!interactive && !apiKeyResolved) {
+    recommendation =
+      'Non-interactive shell: set LIGHTDASH_API_URL, LIGHTDASH_API_KEY, LIGHTDASH_PROJECT_UUID. PAT page: <instance>/generalSettings/personalAccessTokens'
+  } else if (!interactive && apiKeyResolved && !projectResolved) {
+    recommendation =
+      'Set LIGHTDASH_PROJECT_UUID, or run: ldash setup --api-key <token> --project-uuid <uuid>'
+  } else if (interactive && !apiKeyResolved) {
+    recommendation = 'Run: ldash setup'
+  } else {
+    recommendation = 'Run: ldash setup --project-uuid <uuid>'
+  }
+
+  return {
+    ok: ready,
+    interactive,
+    envVars: {
+      LIGHTDASH_API_URL: process.env[ENV_API_URL] !== undefined,
+      LIGHTDASH_API_KEY: process.env[ENV_API_KEY] !== undefined,
+      LIGHTDASH_PROJECT_UUID: process.env[ENV_PROJECT_UUID] !== undefined,
+    },
+    config: {
+      exists: configFileExists(),
+      apiKeyResolved,
+      projectResolved,
+    },
+    recommendation,
+    configFile: getConfigPath(),
+  }
+}
+
+function configFileExists(): boolean {
+  try {
+    return statSync(getConfigPath()).isFile()
+  } catch {
+    return false
+  }
+}
+
+function formatSetupCheck(r: SetupCheckResult): string {
+  const lines = [
+    `Environment readiness: ${r.ok ? '✓ ready' : '✗ not ready'}`,
+    `  Interactive (TTY):   ${r.interactive ? 'yes' : 'no'}`,
+    `  LIGHTDASH_API_URL:   ${r.envVars.LIGHTDASH_API_URL ? 'set' : 'unset'}`,
+    `  LIGHTDASH_API_KEY:   ${r.envVars.LIGHTDASH_API_KEY ? 'set' : 'unset'}`,
+    `  LIGHTDASH_PROJECT_UUID: ${r.envVars.LIGHTDASH_PROJECT_UUID ? 'set' : 'unset'}`,
+    `  Config file:         ${r.config.exists ? r.configFile : '(none)'}`,
+    `  API key resolved:    ${r.config.apiKeyResolved ? 'yes' : 'no'}`,
+    `  Project resolved:    ${r.config.projectResolved ? 'yes' : 'no'}`,
+    '',
+    `Recommendation: ${r.recommendation}`,
+  ]
+  return lines.join('\n')
+}
+
 async function runSetup(args: string[], flags: Flags): Promise<unknown> {
   const opts = parseSetupArgs(args)
+  const flow = selectSetupFlow(opts)
+  if (flow === 'check') {
+    const result = runSetupCheck()
+    // Mirror "ldash doctor": set the exit code (not exit() — let the
+    // dispatcher drain stdout first) so `ldash setup --check || ...`
+    // works. Kept here, not inside runSetupCheck, so the probe stays a
+    // pure read.
+    if (!result.ok) process.exitCode = 1
+    return renderable(result, formatSetupCheck(result), flags)
+  }
   let result: SetupResult
-  switch (selectSetupFlow(opts)) {
+  switch (flow) {
     case 'pat':
       result = await runPatFlow(opts)
       break
@@ -529,13 +645,22 @@ export const setupGroup: CommandGroup = {
     'ldash setup                                       # sign in with browser (OAuth)',
     'ldash setup https://your-instance.com             # sign in to a specific instance',
     'ldash setup --pat                                 # paste a Personal Access Token',
+    'ldash setup --check                               # report whether this env can run setup',
     'ldash setup --api-key <token> --project-uuid <u>  # non-interactive (agents/CI)',
     '',
     'Flags:',
+    '  --check            only report environment readiness; do not run any flow',
     '  --oauth-port <n>   pin the local OAuth callback port (firewall allowlist)',
     '  --token-ttl <h>    Personal Access Token TTL in hours (default 720 = 30 days, max 8760 = 1 year)',
     '  --non-interactive  skip the project picker (auto-pick the first project)',
     '  --json             machine-readable output',
+    '',
+    'Agents/CI — prefer env vars over running setup:',
+    '  export LIGHTDASH_API_URL=https://app.lightdash.cloud',
+    '  export LIGHTDASH_API_KEY=<personal-access-token>',
+    '  export LIGHTDASH_PROJECT_UUID=<project-uuid>',
+    '  ldash config show --json | jq .ready             # true once all three resolve',
+    '  ldash doctor                                     # verifies token + project access',
   ],
   defaultRun: runSetup,
   handlesEmptyArgs: true,

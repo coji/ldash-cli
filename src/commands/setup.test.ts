@@ -10,6 +10,7 @@ import {
 const baseOpts = (): SetupOptions => ({
   pat: false,
   nonInteractive: false,
+  check: false,
 })
 
 describe('normalizeUrl', () => {
@@ -56,6 +57,7 @@ describe('parseSetupArgs', () => {
     expect(opts).toEqual({
       pat: false,
       nonInteractive: false,
+      check: false,
     })
   })
 
@@ -186,6 +188,19 @@ describe('selectSetupFlow', () => {
     expect(selectSetupFlow({ ...baseOpts(), pat: true })).toBe('pat')
     expect(selectSetupFlow({ ...baseOpts(), pat: true, apiKey: 'tok' })).toBe(
       'pat',
+    )
+  })
+
+  it('routes to check whenever --check is set, even with other flags', () => {
+    // --check is a non-destructive readiness probe and should win over PAT,
+    // scripted, and OAuth so an agent can always ask "is this env ready?"
+    // without first cleaning up environment-driven flags.
+    expect(selectSetupFlow({ ...baseOpts(), check: true })).toBe('check')
+    expect(selectSetupFlow({ ...baseOpts(), check: true, pat: true })).toBe(
+      'check',
+    )
+    expect(selectSetupFlow({ ...baseOpts(), check: true, apiKey: 'tok' })).toBe(
+      'check',
     )
   })
 })

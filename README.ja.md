@@ -56,6 +56,14 @@ ldash setup https://app.lightdash.cloud \
 
 Personal Access Token は `<your-instance>/generalSettings/personalAccessTokens` で発行できます。
 
+スクリプトから準備状態を確認:
+
+```bash
+ldash setup --check                       # 未設定なら exit 1
+ldash config show --json | jq .ready      # ワンライナーの readiness チェック
+ldash doctor                              # フル診断: URL → トークン → プロジェクト
+```
+
 ### 設定の優先順位
 
 1. 環境変数 (`LIGHTDASH_API_KEY`, `LIGHTDASH_API_URL`, `LIGHTDASH_PROJECT_UUID`)
@@ -67,6 +75,9 @@ Personal Access Token は `<your-instance>/generalSettings/personalAccessTokens`
 ## クイックスタート
 
 ```bash
+# 何でも横断的に名前で検索 (テーブル、フィールド、チャート、ダッシュボード等)
+ldash search "<query>"
+
 # データモデルを探索
 ldash explore list
 ldash explore get <exploreId>
@@ -83,6 +94,9 @@ ldash query sql "SELECT * FROM orders LIMIT 10"
 # ダッシュボード・チャートを閲覧
 ldash dashboard list
 ldash chart get <chartUuid>
+
+# エンドツーエンドのヘルスチェック (URL → トークン → プロジェクト)
+ldash doctor
 ```
 
 ## コマンド
@@ -91,19 +105,21 @@ ldash chart get <chartUuid>
 ldash <グループ> <コマンド> [引数...] [--json]
 ```
 
-| グループ    | 説明                                                |
-| ----------- | --------------------------------------------------- |
-| `explore`   | データモデル (テーブル、ディメンション、メトリクス) |
-| `query`     | クエリ実行 (メトリクスクエリ、SQL、集計)            |
-| `chart`     | 保存済みチャートとデータ                            |
-| `dashboard` | ダッシュボード (タイル、フィルター、レイアウト)     |
-| `catalog`   | データカタログとメトリクス                          |
-| `project`   | プロジェクトとバリデーション                        |
-| `space`     | スペース (フォルダ)                                 |
-| `org`       | 組織設定                                            |
-| `api`       | API 直接アクセス (エスケープハッチ)                 |
-| `config`    | CLI 設定の管理                                      |
-| `setup`     | セットアップウィザード                              |
+| グループ    | 説明                                                             |
+| ----------- | ---------------------------------------------------------------- |
+| `explore`   | データモデル (テーブル、ディメンション、メトリクス)              |
+| `query`     | クエリ実行 (メトリクスクエリ、SQL、集計、フィルタ演算子一覧)     |
+| `chart`     | 保存済みチャートとデータ                                         |
+| `dashboard` | ダッシュボード (タイル、フィルター、レイアウト)                  |
+| `catalog`   | データカタログとメトリクス                                       |
+| `search`    | 横断検索 (テーブル、フィールド、チャート、ダッシュボード、…)     |
+| `project`   | プロジェクトとバリデーション                                     |
+| `space`     | スペース (フォルダ)                                              |
+| `org`       | 組織設定                                                         |
+| `api`       | API 直接アクセス (エスケープハッチ)                              |
+| `config`    | CLI 設定の管理                                                   |
+| `setup`     | セットアップウィザード                                           |
+| `doctor`    | エンドツーエンドのヘルスチェック (URL → トークン → プロジェクト) |
 
 ### エスケープハッチ
 
@@ -118,10 +134,45 @@ ldash api POST /api/v1/projects/{uuid}/sqlQuery --body '{"sql":"SELECT 1"}'
 
 - デフォルト: 整形された JSON
 - `--json`: パイプ用のコンパクト JSON
+- `--fields a,b,c`: リスト/オブジェクト結果を指定キーに射影
+- `--compact`: コマンドごとの妥当なデフォルト部分集合 (`uuid,name,description` など)
 
 ```bash
 ldash chart list --json | jq '.[].name'
+ldash chart list --compact                # uuid + name + description
+ldash chart list --fields uuid,name,spaceName
 ```
+
+### Stdin / ファイル入力
+
+JSON を渡す全フラグ (`--filters`, `--sorts`, `--dimensions`, `--metrics`, `--body`) と `query sql` の位置引数で以下が使えます:
+
+- `-` で stdin から読み取り
+- `@path/to/file` でファイルから読み取り
+
+```bash
+echo '{"sql":"SELECT 1"}' | ldash api POST /api/v1/projects/<uuid>/sqlQuery --body -
+ldash query run orders --filters @./filters.json
+ldash query sql @./query.sql
+```
+
+### 安定したエラーエンベロープ
+
+`--json` 時、エラーは安定した `code` 付きの構造化エンベロープで返ります。エージェントはメッセージ文字列を解析せずに `code` で分岐できます:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "EXPLORE_NOT_FOUND",
+    "what": "...",
+    "why": "...",
+    "hint": "..."
+  }
+}
+```
+
+`hint` は具体的な次のコマンドを指し示します（例: `EXPLORE_NOT_FOUND` → `Run "ldash explore list"`）。全コードは [`src/errors.ts`](src/errors.ts) を参照。
 
 ### ヘルプ
 

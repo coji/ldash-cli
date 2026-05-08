@@ -58,6 +58,14 @@ ldash setup https://app.lightdash.cloud \
 
 Create a Personal Access Token at `<your-instance>/generalSettings/personalAccessTokens`.
 
+Verify readiness from a script:
+
+```bash
+ldash setup --check                       # exits non-zero when not ready
+ldash config show --json | jq .ready      # one-liner readiness check
+ldash doctor                              # full probe: URL → token → project
+```
+
 ### Configuration precedence
 
 1. Environment variables (`LIGHTDASH_API_KEY`, `LIGHTDASH_API_URL`, `LIGHTDASH_PROJECT_UUID`)
@@ -69,6 +77,9 @@ Run `ldash config show` to see the effective config and where each value came fr
 ## Quick Start
 
 ```bash
+# Find anything by name across explores, fields, charts, dashboards, ...
+ldash search "<query>"
+
 # Discover data models
 ldash explore list
 ldash explore get <exploreId>
@@ -85,6 +96,9 @@ ldash query sql "SELECT * FROM orders LIMIT 10"
 # Browse dashboards & charts
 ldash dashboard list
 ldash chart get <chartUuid>
+
+# End-to-end health check (URL → token → project)
+ldash doctor
 ```
 
 ## Commands
@@ -93,19 +107,21 @@ ldash chart get <chartUuid>
 ldash <group> <command> [args...] [--json]
 ```
 
-| Group       | Description                               |
-| ----------- | ----------------------------------------- |
-| `explore`   | Data models (tables, dimensions, metrics) |
-| `query`     | Run queries (metric queries, SQL, totals) |
-| `chart`     | Saved charts and their data               |
-| `dashboard` | Dashboards (tiles, filters, layout)       |
-| `catalog`   | Data catalog and metrics                  |
-| `project`   | Projects and validation                   |
-| `space`     | Spaces (folders)                          |
-| `org`       | Organization settings                     |
-| `api`       | Direct API access (escape hatch)          |
-| `config`    | Manage CLI configuration                  |
-| `setup`     | Setup wizard                              |
+| Group       | Description                                                  |
+| ----------- | ------------------------------------------------------------ |
+| `explore`   | Data models (tables, dimensions, metrics)                    |
+| `query`     | Run queries (metric queries, SQL, totals, filter operators)  |
+| `chart`     | Saved charts and their data                                  |
+| `dashboard` | Dashboards (tiles, filters, layout)                          |
+| `catalog`   | Data catalog and metrics                                     |
+| `search`    | Cross-cutting search (tables, fields, charts, dashboards, …) |
+| `project`   | Projects and validation                                      |
+| `space`     | Spaces (folders)                                             |
+| `org`       | Organization settings                                        |
+| `api`       | Direct API access (escape hatch)                             |
+| `config`    | Manage CLI configuration                                     |
+| `setup`     | Setup wizard                                                 |
+| `doctor`    | End-to-end health check (URL → token → project)              |
 
 ### Escape Hatch
 
@@ -120,10 +136,45 @@ ldash api POST /api/v1/projects/{uuid}/sqlQuery --body '{"sql":"SELECT 1"}'
 
 - Default: pretty-printed JSON
 - `--json`: compact JSON for piping
+- `--fields a,b,c`: project list/object results down to selected keys
+- `--compact`: per-command sensible default subset (`uuid,name,description` etc.)
 
 ```bash
 ldash chart list --json | jq '.[].name'
+ldash chart list --compact                # uuid + name + description
+ldash chart list --fields uuid,name,spaceName
 ```
+
+### Stdin / file input
+
+Every JSON-bearing flag (`--filters`, `--sorts`, `--dimensions`, `--metrics`, `--body`) and the `query sql` positional accept:
+
+- `-` to read from stdin
+- `@path/to/file` to read from a file
+
+```bash
+echo '{"sql":"SELECT 1"}' | ldash api POST /api/v1/projects/<uuid>/sqlQuery --body -
+ldash query run orders --filters @./filters.json
+ldash query sql @./query.sql
+```
+
+### Stable error envelope
+
+Under `--json`, errors return a structured envelope with a stable `code` so agents can branch without parsing message text:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "EXPLORE_NOT_FOUND",
+    "what": "...",
+    "why": "...",
+    "hint": "..."
+  }
+}
+```
+
+The `hint` usually points at a concrete next command (e.g. `EXPLORE_NOT_FOUND` → `Run "ldash explore list"`). Full code list in [`src/errors.ts`](src/errors.ts).
 
 ### Help
 

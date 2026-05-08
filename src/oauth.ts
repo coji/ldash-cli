@@ -171,6 +171,7 @@ async function generatePat(
           err instanceof Error ? err.message : String(err)
         }`,
         'Check your network connection, or fall back to pasting a token manually: ldash setup --pat',
+        'NETWORK',
       )
     })
   if (error || !data) {
@@ -179,6 +180,9 @@ async function generatePat(
       'Failed to create access token',
       `Lightdash returned HTTP ${response.status} when creating a personal access token.${body ? `\n       ${body.slice(0, 200)}` : ''}`,
       'Try again, or fall back to pasting a token manually: ldash setup --pat',
+      response.status === 401 || response.status === 403
+        ? 'AUTH_INVALID'
+        : 'UPSTREAM',
     )
   }
   return { token: data.results.token, expiresAt }
@@ -200,6 +204,7 @@ async function fetchUser(
           err instanceof Error ? err.message : String(err)
         }`,
         'Check your network connection and try "ldash setup" again.',
+        'NETWORK',
       )
     })
   if (error || !data) {
@@ -207,6 +212,7 @@ async function fetchUser(
       'Failed to fetch user info',
       `Lightdash returned HTTP ${response.status} for /api/v1/user after sign-in.`,
       'Try "ldash setup" again. If the problem persists, report an issue.',
+      response.status === 401 ? 'AUTH_INVALID' : 'UPSTREAM',
     )
   }
   const { userUuid, firstName, lastName, organizationUuid, email } =
@@ -216,6 +222,7 @@ async function fetchUser(
       'Failed to fetch user info',
       'Lightdash did not return organizationUuid or email for the signed-in user.',
       'Try "ldash setup" again. If the problem persists, report an issue.',
+      'UPSTREAM',
     )
   }
   return { userUuid, firstName, lastName, organizationUuid, email }
@@ -234,6 +241,7 @@ export function resolvePort(requested: number | undefined): number {
       'Invalid LIGHTDASH_OAUTH_PORT',
       `LIGHTDASH_OAUTH_PORT must be a whole number between 1 and 65535, got "${envPortStr}".`,
       'Unset the env var or pass --oauth-port <n> explicitly.',
+      'INVALID_INPUT',
     )
   }
   return envPort
@@ -326,6 +334,7 @@ export async function loginWithOAuth(
           'OAuth authorization denied',
           `The Lightdash authorization server returned: ${desc}`,
           `Try again, or paste a token manually: ldash setup ${url} --pat`,
+          'AUTH_INVALID',
         ),
       )
       return
@@ -338,6 +347,7 @@ export async function loginWithOAuth(
           'OAuth callback missing code or state',
           'The redirect from Lightdash did not include the expected parameters.',
           `Try again. If it keeps failing, use: ldash setup ${url} --pat`,
+          'AUTH_INVALID',
         ),
       )
       return
@@ -359,6 +369,7 @@ export async function loginWithOAuth(
           'OAuth state mismatch',
           'The redirect did not match the original login attempt.',
           `Run "ldash setup" again from the start. If it keeps failing, use: ldash setup ${url} --pat`,
+          'AUTH_INVALID',
         ),
       )
       return
@@ -384,6 +395,7 @@ export async function loginWithOAuth(
       'Could not start the local OAuth callback server',
       err instanceof Error ? err.message : String(err),
       `Pick a different port with --oauth-port <n>, or use: ldash setup ${url} --pat`,
+      'NETWORK',
     )
   }
 
@@ -414,6 +426,10 @@ export async function loginWithOAuth(
               'Behind a firewall? Try:  ldash setup --oauth-port 8976',
               `Can't use a browser? Try:  ldash setup ${url} --pat`,
             ].join('\n      '),
+            // Treat browser/callback timeouts as a NETWORK problem so agents
+            // route to firewall/PAT fallbacks rather than re-prompting for
+            // credentials (the user never even submitted any).
+            'NETWORK',
           ),
         )
       }, timeoutMs)
@@ -433,6 +449,7 @@ export async function loginWithOAuth(
         'OAuth token exchange failed',
         msg,
         `Your Lightdash instance may not support CLI OAuth login yet.\n      Try:  ldash setup ${url} --pat`,
+        'AUTH_INVALID',
       )
     }
 
@@ -442,6 +459,7 @@ export async function loginWithOAuth(
         'OAuth token exchange returned no access token',
         'Lightdash responded successfully but did not include an access_token.',
         `Try:  ldash setup ${url} --pat`,
+        'AUTH_INVALID',
       )
     }
 

@@ -11,12 +11,16 @@ export const projectGroup: CommandGroup = {
   commands: {
     list: {
       description: 'List all projects in the organization',
-      usage: 'ldash project list',
-      examples: ['ldash project list'],
+      usage: 'ldash project list [--compact] [--fields <a,b,...>]',
+      examples: [
+        'ldash project list',
+        'ldash project list --compact                        # projectUuid + name + type',
+      ],
       nextSteps: [
         'Set LIGHTDASH_PROJECT_UUID to use other commands',
         'ldash project get for current project details',
       ],
+      compactFields: ['projectUuid', 'name', 'type'],
       run: () => {
         const { client } = api.createBaseClient()
         return api.listProjects(client)
