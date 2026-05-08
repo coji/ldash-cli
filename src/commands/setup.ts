@@ -590,8 +590,6 @@ function runSetupCheck(): SetupCheckResult {
 
 function configFileExists(): boolean {
   try {
-    // Lazy import: avoid pulling fs into the hot path of normal commands.
-    // node:fs is a builtin, so the require cost is negligible here.
     return statSync(getConfigPath()).isFile()
   } catch {
     return false

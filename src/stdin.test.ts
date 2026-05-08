@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CliError } from './errors.js'
@@ -62,6 +65,47 @@ describe('readPositionalOrStdin', () => {
   it('throws on whitespace-only piped stdin', async () => {
     withStdin('   \n  ')
     await expect(readPositionalOrStdin('-', 'sql')).rejects.toBeInstanceOf(
+      CliError,
+    )
+  })
+})
+
+describe('@file syntax', () => {
+  let tmpDir: string | undefined
+
+  afterEach(() => {
+    if (tmpDir) {
+      rmSync(tmpDir, { recursive: true, force: true })
+      tmpDir = undefined
+    }
+  })
+
+  function makeTmpFile(name: string, contents: string): string {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ldash-stdin-test-'))
+    const path = join(tmpDir, name)
+    writeFileSync(path, contents)
+    return path
+  }
+
+  it('readBodyOrStdin reads file contents when value is @path', async () => {
+    const path = makeTmpFile('body.json', '{"hello":"world"}')
+    expect(await readBodyOrStdin(`@${path}`)).toBe('{"hello":"world"}')
+  })
+
+  it('readPositionalOrStdin reads file contents when value is @path', async () => {
+    const path = makeTmpFile('query.sql', 'SELECT 1\n')
+    expect(await readPositionalOrStdin(`@${path}`, 'sql')).toBe('SELECT 1\n')
+  })
+
+  it('throws CliError for a missing @file', async () => {
+    await expect(
+      readBodyOrStdin('@/nonexistent/path/to/file.json'),
+    ).rejects.toBeInstanceOf(CliError)
+  })
+
+  it('throws CliError for an empty @-prefix with no path', async () => {
+    await expect(readBodyOrStdin('@')).rejects.toBeInstanceOf(CliError)
+    await expect(readPositionalOrStdin('@', 'sql')).rejects.toBeInstanceOf(
       CliError,
     )
   })

@@ -134,10 +134,18 @@ export const searchGroup: CommandGroup = {
           : Promise.resolve<SearchHit[]>([]),
       ])
 
-    return [...catalogHits, ...chartHits, ...dashboardHits, ...spaceHits].slice(
-      0,
-      limit,
+    // Take a per-kind slice before concatenating so a noisy catalog
+    // result set doesn't crowd out chart/dashboard/space hits — agents
+    // rely on a sample of each kind to choose where to drill in. When
+    // `limit` is smaller than the active-kind count the final slice
+    // falls back to first-come-first-served (catalog → chart → ...) — a
+    // corner case the default limit of 50 keeps unreachable in practice.
+    const groups = [catalogHits, chartHits, dashboardHits, spaceHits].filter(
+      (g) => g.length > 0,
     )
+    if (groups.length === 0) return []
+    const perKind = Math.max(1, Math.ceil(limit / groups.length))
+    return groups.flatMap((g) => g.slice(0, perKind)).slice(0, limit)
   },
 }
 

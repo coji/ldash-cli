@@ -426,7 +426,10 @@ export async function loginWithOAuth(
               'Behind a firewall? Try:  ldash setup --oauth-port 8976',
               `Can't use a browser? Try:  ldash setup ${url} --pat`,
             ].join('\n      '),
-            'AUTH_INVALID',
+            // Treat browser/callback timeouts as a NETWORK problem so agents
+            // route to firewall/PAT fallbacks rather than re-prompting for
+            // credentials (the user never even submitted any).
+            'NETWORK',
           ),
         )
       }, timeoutMs)

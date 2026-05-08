@@ -168,6 +168,9 @@ export const doctorGroup: CommandGroup = {
   commands: {},
   defaultRun: async (_args, flags) => {
     const result = await runDoctor()
+    // Set the exit code (not exit() — let the dispatcher drain stdout
+    // first) so `ldash doctor && deploy` actually gates on success.
+    if (!result.ok) process.exitCode = 1
     return renderable(result, formatDoctor(result), flags)
   },
   handlesEmptyArgs: true,

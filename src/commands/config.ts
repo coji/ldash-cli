@@ -96,7 +96,10 @@ export const configGroup: CommandGroup = {
         const apiKeySet = r.apiKey.source !== 'unset' && Boolean(r.apiKey.value)
         const projectSet =
           r.projectUuid.source !== 'unset' && Boolean(r.projectUuid.value)
-        const apiUrlSet = r.apiUrl.source !== 'unset'
+        // Mirror the apiKey/project shape so an empty-string env var
+        // (e.g. `LIGHTDASH_API_URL=` from a half-rendered template) doesn't
+        // light up `ready: true` with no actual URL to call.
+        const apiUrlSet = r.apiUrl.source !== 'unset' && Boolean(r.apiUrl.value)
         const ready = apiKeySet && projectSet && apiUrlSet
 
         const structured = {

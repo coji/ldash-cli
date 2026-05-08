@@ -228,8 +228,11 @@ main(globalArgs, globalFlags)
     // shot CLI has nothing else to do at this point, so exit explicitly
     // instead of waiting for those sockets to time out — but only after
     // the streams have actually flushed.
+    //
+    // Honor `process.exitCode` set by individual commands (e.g. `ldash
+    // doctor` flips it to 1 when a check fails) so CI gates work.
     await drainStandardStreams()
-    process.exit(0)
+    process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0)
   })
   .catch(async (err: unknown) => {
     const cli = err instanceof CliError ? err : wrapApiError(err)

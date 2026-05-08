@@ -551,7 +551,7 @@ export async function runSqlQuery(
       body: { sql, limit },
     },
   )
-  if (error) throwOnError(error)
+  if (error) throwOnError(error, { resource: 'project', id: projectUuid })
   return data.results
 }
 

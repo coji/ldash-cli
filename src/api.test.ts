@@ -61,6 +61,33 @@ describe('mapApiError', () => {
     expect(err.hint).toContain('ldash chart list')
   })
 
+  it('classifies 404 against a dashboard as DASHBOARD_NOT_FOUND', () => {
+    const err = mapApiError(envelope('NotFoundError', 'missing', 404), {
+      resource: 'dashboard',
+      id: 'abc',
+    })
+    expect(err.code).toBe('DASHBOARD_NOT_FOUND')
+    expect(err.hint).toContain('ldash dashboard list')
+  })
+
+  it('classifies 404 against a space as SPACE_NOT_FOUND', () => {
+    const err = mapApiError(envelope('NotFoundError', 'missing', 404), {
+      resource: 'space',
+      id: 'abc',
+    })
+    expect(err.code).toBe('SPACE_NOT_FOUND')
+    expect(err.hint).toContain('ldash space list')
+  })
+
+  it('classifies 404 against a metric as METRIC_NOT_FOUND', () => {
+    const err = mapApiError(envelope('NotFoundError', 'missing', 404), {
+      resource: 'metric',
+      id: 'revenue',
+    })
+    expect(err.code).toBe('METRIC_NOT_FOUND')
+    expect(err.hint).toContain('ldash catalog metrics')
+  })
+
   it('falls back to RESOURCE_NOT_FOUND without a context resource', () => {
     const err = mapApiError(envelope('NotFoundError', 'missing', 404))
     expect(err.code).toBe('RESOURCE_NOT_FOUND')

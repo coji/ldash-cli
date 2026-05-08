@@ -66,112 +66,101 @@ function warnEmptyArray(value: unknown[], name: string): void {
 }
 
 /**
- * Hardcoded view of Lightdash's `FilterOperator` enum, kept type-safe via
- * the `components['schemas']['FilterOperator']` annotation: if upstream
- * removes or renames an operator, the generated swagger types will diverge
- * and this declaration will fail to compile, prompting a refresh.
+ * Hardcoded view of Lightdash's `FilterOperator` enum. The Record key type
+ * forces TypeScript to verify that EVERY operator in the upstream union is
+ * present here — adding or removing one upstream fails compilation, instead
+ * of silently letting a stale list pass through (which a `ReadonlyArray`
+ * annotation would have allowed).
  *
- * `values` documents the expected `values` array shape on a FilterRule.
+ * Each entry's `values` documents the expected `values` array shape on a
+ * FilterRule.
  */
-const FILTER_OPERATORS: ReadonlyArray<{
-  operator: components['schemas']['FilterOperator']
-  description: string
-  values: string
-}> = [
-  { operator: 'isNull', description: 'Field IS NULL', values: '[]' },
-  { operator: 'notNull', description: 'Field IS NOT NULL', values: '[]' },
-  {
-    operator: 'equals',
+const FILTER_OPERATOR_INFO: Record<
+  components['schemas']['FilterOperator'],
+  { description: string; values: string }
+> = {
+  isNull: { description: 'Field IS NULL', values: '[]' },
+  notNull: { description: 'Field IS NOT NULL', values: '[]' },
+  equals: {
     description: 'Field equals any of the given values',
     values: '[v1, v2, ...]  (OR semantics)',
   },
-  {
-    operator: 'notEquals',
+  notEquals: {
     description: 'Field does not equal any of the given values',
     values: '[v1, v2, ...]',
   },
-  {
-    operator: 'startsWith',
+  startsWith: {
     description: 'String field starts with any of the given values',
     values: '[prefix, ...]',
   },
-  {
-    operator: 'endsWith',
+  endsWith: {
     description: 'String field ends with any of the given values',
     values: '[suffix, ...]',
   },
-  {
-    operator: 'include',
+  include: {
     description: 'String field contains any of the given substrings',
     values: '[substring, ...]',
   },
-  {
-    operator: 'doesNotInclude',
+  doesNotInclude: {
     description: 'String field contains none of the given substrings',
     values: '[substring, ...]',
   },
-  {
-    operator: 'lessThan',
+  lessThan: {
     description: 'Numeric/date field is less than value',
     values: '[number-or-date]',
   },
-  {
-    operator: 'lessThanOrEqual',
+  lessThanOrEqual: {
     description: 'Numeric/date field is less than or equal to value',
     values: '[number-or-date]',
   },
-  {
-    operator: 'greaterThan',
+  greaterThan: {
     description: 'Numeric/date field is greater than value',
     values: '[number-or-date]',
   },
-  {
-    operator: 'greaterThanOrEqual',
+  greaterThanOrEqual: {
     description: 'Numeric/date field is greater than or equal to value',
     values: '[number-or-date]',
   },
-  {
-    operator: 'inThePast',
+  inThePast: {
     description: 'Date field falls within the last N (DAY|WEEK|MONTH|YEAR)',
     values:
       '[count]  (also set settings: { unit: "DAY"|... , completed: bool })',
   },
-  {
-    operator: 'notInThePast',
+  notInThePast: {
     description: 'Negation of inThePast',
     values: '[count]',
   },
-  {
-    operator: 'inTheNext',
+  inTheNext: {
     description: 'Date field falls within the next N units',
     values: '[count]  (also set settings: { unit, completed })',
   },
-  {
-    operator: 'inTheCurrent',
+  inTheCurrent: {
     description: 'Date field falls within the current period',
     values: '[]  (set settings: { unit })',
   },
-  {
-    operator: 'notInTheCurrent',
+  notInTheCurrent: {
     description: 'Negation of inTheCurrent',
     values: '[]',
   },
-  {
-    operator: 'inBetween',
+  inBetween: {
     description: 'Field falls in the inclusive range [start, end]',
     values: '[start, end]',
   },
-  {
-    operator: 'notInBetween',
+  notInBetween: {
     description: 'Negation of inBetween',
     values: '[start, end]',
   },
-  {
-    operator: 'inPeriodToDate',
+  inPeriodToDate: {
     description: 'Date field falls in the period-to-date window',
     values: '[count]  (set settings: { unit })',
   },
-]
+}
+
+const FILTER_OPERATORS = (
+  Object.keys(FILTER_OPERATOR_INFO) as Array<
+    components['schemas']['FilterOperator']
+  >
+).map((operator) => ({ operator, ...FILTER_OPERATOR_INFO[operator] }))
 
 export const queryGroup: CommandGroup = {
   description: 'Run queries (metric queries, SQL, totals)',
